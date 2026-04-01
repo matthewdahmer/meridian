@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Constraint Pitch Sensitivity</title>
+  <link rel="stylesheet" href="vendor/bootstrap.min.css" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { display: flex; flex-direction: row; background: #f3f4f6; font-family: Arial, sans-serif; }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 260px; min-width: 260px; background: #1e2937;
+      display: flex; flex-direction: column; height: 100vh;
+      position: sticky; top: 0; overflow-y: auto;
+    }
+    #sidebar .brand {
+      color: #f9fafb; font-size: .9rem; font-weight: 600;
+      padding: .75rem 1rem; border-bottom: 1px solid #374151;
+    }
+    #sidebar .section-label {
+      color: #6b7280; font-size: .68rem; text-transform: uppercase;
+      letter-spacing: .08em; padding: .6rem 1rem .2rem;
+    }
+    #sidebar nav a {
+      display: block; color: #9ca3af; font-size: .82rem;
+      padding: .35rem 1rem; border-left: 3px solid transparent;
+      text-decoration: none;
+    }
+    #sidebar nav a:hover { color: #f3f4f6; background: #273345; }
+    #sidebar nav a.active { color: #60a5fa; background: #1e3a56; border-left-color: #3b82f6; }
+
+    /* ── Main ── */
+    #main { flex: 1; padding: 1.25rem; min-width: 0; overflow-y: auto; }
+
+    .card {
+      background: #fff; border-radius: .375rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: .75rem;
+    }
+
+    /* ── Loading / Error ── */
+    .loading-state {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 200px; color: #6b7280; gap: .5rem;
+    }
+    #error-panel { display: none; }
+
+    /* ── Chart ── */
+    #chart-container { width: 100%; }
+    #chart-container svg { display: block; width: 100%; height: auto; }
+
+    /* Mobile offcanvas trigger */
+    #mobile-nav-btn { display: none; }
+    @media (max-width: 767px) {
+      #sidebar { display: none; }
+      #mobile-nav-btn { display: block; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div class="brand">Meridian</div>
+  <div class="section-label">Views</div>
+  <nav>
+    <a href="#" class="active" id="nav-protractor">Pitch Sensitivity</a>
+  </nav>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <!-- Mobile nav -->
+  <button id="mobile-nav-btn" class="btn btn-outline-secondary btn-sm mb-2"
+          data-bs-toggle="offcanvas" data-bs-target="#offcanvasSidebar">&#9776; Menu</button>
+
+  <div id="content-area">
+    <div id="protractor-panel" class="card">
+      <div id="loading-state" class="loading-state">
+        <div class="spinner-border spinner-border-sm text-primary"></div>
+        <span>Loading data&hellip;</span>
+      </div>
+      <div id="chart-container" style="display:none"></div>
+    </div>
+
+    <div id="tables-area"></div>
+  </div>
+
+  <div id="error-panel" class="alert alert-danger mt-3"></div>
+</div>
+
+<script src="vendor/bootstrap.bundle.min.js"></script>
+<script src="vendor/d3.min.js"></script>
+<script src="app.js"></script>
+<script>
+  App.init();
+</script>
+</body>
+</html>
