@@ -2,6 +2,8 @@
 
 Spacecraft thermal dwell envelope visualization tool for Chandra X-ray Observatory. Shows maximum allowed dwell time per thermal model/location as a function of pitch, under coupled thermal constraints.
 
+> **IMPORTANT**: Never read files under `./data/` (including `.json` and `.gz` files). These are large raw scenario files. Use the documented data format descriptions in this file instead. The only exception is `./data/manifest.json`, which may be read.
+
 ## Target Project Layout
 
 ```

@@ -77,6 +77,22 @@
 
   <div id="content-area">
     <div id="protractor-panel" class="card">
+      <div id="condition-bar" style="display:flex;gap:.75rem;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;">
+        <label style="font-size:.82rem;color:#555;white-space:nowrap">Date</label>
+        <select id="sel-date"  class="form-select form-select-sm" style="width:auto;min-width:160px"></select>
+        <label style="font-size:.82rem;color:#555;white-space:nowrap">Chips</label>
+        <select id="sel-chips" class="form-select form-select-sm" style="width:auto;min-width:80px"></select>
+        <label style="font-size:.82rem;color:#555;white-space:nowrap">ACIS FP Limit (°C)</label>
+        <select id="sel-fptemp_11_limit"  class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
+        <label style="font-size:.82rem;color:#555;white-space:nowrap">ACA CCD Limit (°C)</label>
+        <select id="sel-aacccdpt_limit"   class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
+        <label style="font-size:.82rem;color:#555;white-space:nowrap">Thruster 2A Limit (°F)</label>
+        <select id="sel-pm1thv2t_limit"   class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
+        <label style="font-size:.82rem;color:#555;white-space:nowrap">Thruster 1B Limit (°F)</label>
+        <select id="sel-pm2thv1t_limit"   class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
+        <label style="font-size:.82rem;color:#555;white-space:nowrap">Fine Sun Sensor Limit (°F)</label>
+        <select id="sel-tpc_fsse_limit"   class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
+      </div>
       <div id="loading-state" class="loading-state">
         <div class="spinner-border spinner-border-sm text-primary"></div>
         <span>Loading data&hellip;</span>
