@@ -30,6 +30,10 @@
     }
     #sidebar nav a:hover { color: #f3f4f6; background: #273345; }
     #sidebar nav a.active { color: #60a5fa; background: #1e3a56; border-left-color: #3b82f6; }
+    #sidebar nav .sub-nav-link {
+      padding-left: 1.75rem;
+      font-size: .78rem;
+    }
 
     /* ── Main ── */
     #main { flex: 1; padding: 1.25rem; min-width: 0; overflow-y: auto; }
@@ -66,6 +70,14 @@
   <div class="section-label">Views</div>
   <nav>
     <a href="#" class="active" id="nav-protractor">Pitch Sensitivity</a>
+
+    <a href="#ss-collapse" data-bs-toggle="collapse"
+       class="d-flex justify-content-between align-items-center" id="nav-ss-toggle">
+      Steady States <span>&#9660;</span>
+    </a>
+    <div class="collapse" id="ss-collapse">
+      <ul id="ss-model-nav" style="list-style:none;padding:0;margin:0"></ul>
+    </div>
   </nav>
 </div>
 
@@ -77,21 +89,73 @@
 
   <div id="content-area">
     <div id="protractor-panel" class="card">
-      <div id="condition-bar" style="display:flex;gap:.75rem;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;">
-        <label style="font-size:.82rem;color:#555;white-space:nowrap">Date</label>
-        <select id="sel-date"  class="form-select form-select-sm" style="width:auto;min-width:160px"></select>
-        <label style="font-size:.82rem;color:#555;white-space:nowrap">Chips</label>
-        <select id="sel-chips" class="form-select form-select-sm" style="width:auto;min-width:80px"></select>
-        <label style="font-size:.82rem;color:#555;white-space:nowrap">ACIS FP Limit (°C)</label>
-        <select id="sel-fptemp_11_limit"  class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
-        <label style="font-size:.82rem;color:#555;white-space:nowrap">ACA CCD Limit (°C)</label>
-        <select id="sel-aacccdpt_limit"   class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
-        <label style="font-size:.82rem;color:#555;white-space:nowrap">Thruster 2A Limit (°F)</label>
-        <select id="sel-pm1thv2t_limit"   class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
-        <label style="font-size:.82rem;color:#555;white-space:nowrap">Thruster 1B Limit (°F)</label>
-        <select id="sel-pm2thv1t_limit"   class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
-        <label style="font-size:.82rem;color:#555;white-space:nowrap">Fine Sun Sensor Limit (°F)</label>
-        <select id="sel-tpc_fsse_limit"   class="form-select form-select-sm" style="width:auto;min-width:100px"></select>
+      <div id="condition-bar" class="mb-3">
+        <div class="row g-2 align-items-end">
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-date">Date</label>
+            <select id="sel-date" class="form-select form-select-sm" style="min-width:145px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-chips">Chips</label>
+            <select id="sel-chips" class="form-select form-select-sm" style="min-width:60px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-2ceahvpt_limit_s">HRC-S CEA (°C)</label>
+            <select id="sel-2ceahvpt_limit_s" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-2ceahvpt_limit_i">HRC-I CEA (°C)</label>
+            <select id="sel-2ceahvpt_limit_i" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-pline03t_limit">Prop. Line #3 (°F)</label>
+            <select id="sel-pline03t_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-pline04t_limit">Prop. Line #4 (°F)</label>
+            <select id="sel-pline04t_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-1dpamzt_limit">ACIS DPA (°C)</label>
+            <select id="sel-1dpamzt_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-1deamzt_limit">ACIS DEA (°C)</label>
+            <select id="sel-1deamzt_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-fptemp_11_limit">ACIS FP (°C)</label>
+            <select id="sel-fptemp_11_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-4rt700t_limit">OBA Bulkhead (°F)</label>
+            <select id="sel-4rt700t_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-aacccdpt_limit">ACA CCD (°C)</label>
+            <select id="sel-aacccdpt_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-pftank2t_limit">IPS Tank (°F)</label>
+            <select id="sel-pftank2t_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-pm2thv1t_limit">Thruster 1B (°F)</label>
+            <select id="sel-pm2thv1t_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-pm1thv2t_limit">Thruster 2A (°F)</label>
+            <select id="sel-pm1thv2t_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-1pdeaat_limit">ACIS PSMC (°C)</label>
+            <select id="sel-1pdeaat_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small text-muted mb-1" for="sel-tpc_fsse_limit">Sun Sensor (°F)</label>
+            <select id="sel-tpc_fsse_limit" class="form-select form-select-sm" style="min-width:90px"></select>
+          </div>
+        </div>
       </div>
       <div id="loading-state" class="loading-state">
         <div class="spinner-border spinner-border-sm text-primary"></div>
@@ -111,6 +175,24 @@
 <script src="app.js"></script>
 <script>
   App.init();
+
+  // Populate Steady States sidebar links from steady_states manifest.
+  // Fails silently if steady_states data has not been generated yet.
+  fetch('../steady_states/data/manifest.json')
+    .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+    .then(manifest => {
+      const ul = document.getElementById('ss-model-nav');
+      manifest.forEach(entry => {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = `../steady_states/?model=${entry.nav_id}`;
+        a.textContent = entry.display_name;
+        a.className = 'nav-link sub-nav-link';
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+    })
+    .catch(() => {});
 </script>
 </body>
 </html>

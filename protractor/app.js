@@ -53,28 +53,24 @@ const App = (() => {
 
   const GZ_CACHE_MAX = 20;  // max compressed ArrayBuffers held in memory
 
-  // The 5 limit columns that vary within scenario files and need selector dropdowns.
-  // msid links each limit column to its MSID_INFO entry for name and units.
-  const VARIABLE_LIMITS = [
+  // All thermal limit columns, in sidebar display order.
+  // Each gets a dropdown selector regardless of how many unique values it carries.
+  // Note: HRC limit columns use the format 2ceahvpt_limit_s / _i (suffix after "limit").
+  const ALL_LIMITS = [
+    { col: '2ceahvpt_limit_s', msid: '2ceahvpt_s' },
+    { col: '2ceahvpt_limit_i', msid: '2ceahvpt_i' },
+    { col: 'pline03t_limit',   msid: 'pline03t'   },
+    { col: 'pline04t_limit',   msid: 'pline04t'   },
+    { col: '1dpamzt_limit',    msid: '1dpamzt'    },
+    { col: '1deamzt_limit',    msid: '1deamzt'    },
     { col: 'fptemp_11_limit',  msid: 'fptemp_11'  },
+    { col: '4rt700t_limit',    msid: '4rt700t'    },
     { col: 'aacccdpt_limit',   msid: 'aacccdpt'   },
-    { col: 'pm1thv2t_limit',   msid: 'pm1thv2t'   },
+    { col: 'pftank2t_limit',   msid: 'pftank2t'   },
     { col: 'pm2thv1t_limit',   msid: 'pm2thv1t'   },
+    { col: 'pm1thv2t_limit',   msid: 'pm1thv2t'   },
+    { col: '1pdeaat_limit',    msid: '1pdeaat'    },
     { col: 'tpc_fsse_limit',   msid: 'tpc_fsse'   },
-  ];
-
-  // The 9 limit columns that are constant across all rows and files (no dropdown needed).
-  // Note: HRC limit columns use the format 2ceahvpt_limit_s / 2ceahvpt_limit_i (suffix after "limit").
-  const CONSTANT_LIMITS = [
-    { col: '1dpamzt_limit',     msid: '1dpamzt'    },
-    { col: '1deamzt_limit',     msid: '1deamzt'    },
-    { col: '1pdeaat_limit',     msid: '1pdeaat'    },
-    { col: '2ceahvpt_limit_s',  msid: '2ceahvpt_s' },
-    { col: '2ceahvpt_limit_i',  msid: '2ceahvpt_i' },
-    { col: '4rt700t_limit',     msid: '4rt700t'    },
-    { col: 'pftank2t_limit',    msid: 'pftank2t'   },
-    { col: 'pline03t_limit',    msid: 'pline03t'   },
-    { col: 'pline04t_limit',    msid: 'pline04t'   },
   ];
 
   // ── Angle helpers ─────────────────────────────────────────────────────────
@@ -484,15 +480,8 @@ const App = (() => {
     const chipsVal = document.getElementById('sel-chips')?.value ?? '';
     items.push({ label: 'Date',  value: dateVal  ? doyLabel(dateVal) : '—' });
     items.push({ label: 'Chips', value: chipsVal || '—' });
-    for (const { col, msid } of VARIABLE_LIMITS) {
+    for (const { col, msid } of ALL_LIMITS) {
       const v     = selectedLimits.get(col);
-      const units = MSID_INFO[msid]?.units ?? 'C';
-      items.push({ label: MSID_COMMON_NAMES[msid] || msid,
-                   value: v != null ? formatLimitVal(v, units) : '—' });
-    }
-    for (const { col, msid } of CONSTANT_LIMITS) {
-      const arr   = rawLim[col];
-      const v     = arr ? arr.find(x => x != null) : null;
       const units = MSID_INFO[msid]?.units ?? 'C';
       items.push({ label: MSID_COMMON_NAMES[msid] || msid,
                    value: v != null ? formatLimitVal(v, units) : '—' });
@@ -649,10 +638,10 @@ const App = (() => {
 
   // ── Condition selectors ───────────────────────────────────────────────────
 
-  // Populate all 5 variable-limit dropdowns from raw columns.
+  // Populate all limit dropdowns from raw columns.
   // Preserves current selection if still valid in the new data; else picks middle value.
   function populateLimitDropdowns(rawCols) {
-    for (const { col, msid } of VARIABLE_LIMITS) {
+    for (const { col, msid } of ALL_LIMITS) {
       const sel = document.getElementById(`sel-${col}`);
       if (!sel) continue;
       const units = MSID_INFO[msid]?.units ?? 'C';
@@ -673,7 +662,7 @@ const App = (() => {
   // Read current limit select values into a Map<colName, numericValue>.
   function getSelectedLimits() {
     const m = new Map();
-    for (const { col } of VARIABLE_LIMITS) {
+    for (const { col } of ALL_LIMITS) {
       const sel = document.getElementById(`sel-${col}`);
       if (sel && sel.value !== '') m.set(col, +sel.value);
     }
@@ -777,7 +766,7 @@ const App = (() => {
 
       selDate.addEventListener('change',  () => loadAndRender());
       selChips.addEventListener('change', () => loadAndRender());
-      for (const { col } of VARIABLE_LIMITS) {
+      for (const { col } of ALL_LIMITS) {
         document.getElementById(`sel-${col}`)
           ?.addEventListener('change', () => refilterAndRender());
       }
