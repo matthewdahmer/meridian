@@ -147,10 +147,8 @@ Canonical inner→outer band render order. Only MSIDs in this list appear on the
 
 ```
 '2ceahvpt_s', '2ceahvpt_i', 'pline03t', 'pline04t', '1dpamzt', '1deamzt',
-'fptemp_11', '4rt700t', 'aacccdpt', 'pftank2t', 'pm2thv1t', 'pm1thv2t', '1pdeaat'
+'fptemp_11', '4rt700t', 'tpc_fsse', 'aacccdpt', 'pftank2t', 'pm2thv1t', 'pm1thv2t', '1pdeaat'
 ```
-
-Note: `tpc_fsse` is in `MSID_INFO` and `ALL_LIMITS` but **not** in `PREFERRED_ORDER` — it has a limit dropdown and appears in the conditions legend, but is not rendered as a band. See Known Issues.
 
 #### `HRC_MSIDS`
 
@@ -215,7 +213,7 @@ ViewBox `W × H`, `H = W × 0.60`. Arc center `(cx, cy)` where `cy = H − margi
 
 `findLimitingMsids(summary, msids)` receives only non-HRC active MSIDs (`msids`, not `allMsids`). Returns `Map<pitch, Set<msid>>` — the lowest `limMin` wins at each pitch; ties included.
 
-**Critical**: must pass `msids` (displayed, non-HRC), NOT `allMsids`. If called with `allMsids`, unrendered MSIDs like `tpc_fsse` can win the minimum at every pitch and suppress all dark-red rendering.
+**Critical**: must pass `msids` (displayed, non-HRC), NOT `allMsids`. If called with `allMsids`, a low-valued MSID can win the minimum at every pitch and suppress all dark-red rendering.
 
 #### MSID labels
 
@@ -226,16 +224,24 @@ ViewBox `W × H`, `H = W × 0.60`. Arc center `(cx, cy)` where `cy = H − margi
 
 #### Conditions legend
 
-`drawConditionsLegend()` draws a full-width box pinned 4px above SVG bottom edge. 4 columns × 4 rows, 16 entries: Date, Chips, all 14 limit values (with °C/°F units from `MSID_INFO`).
+`drawConditionsLegend()` draws a full-width box pinned to the SVG bottom edge (12px gap, `padY = 6`). 4 columns × 4 rows, 16 entries: Date, Chips, all 14 limit values (with °C/°F units from `MSID_INFO`). Row height uses `lineH = (fontSize + 5) * 1.2` — 20% more vertical spacing than the original `fontSize + 5`.
 
 ### HTML structure (`protractor/index.html`)
 
 Fixed 260px dark sidebar + flex-grow `#main`.
 
-**Condition bar** (`#condition-bar`) uses Bootstrap `row g-2 align-items-end` with `col-auto` children — wraps naturally at container width:
-- `sel-date` (min-width:145px) — populated from manifest at init, options via `doyLabel()`
-- `sel-chips` (min-width:60px) — populated from manifest at init
-- 14 limit selects (min-width:90px each, id=`sel-<col>`) — populated by `populateLimitDropdowns()` after first fetch
+**Top area layout** — `#content-area` is a flex row (`display:flex; gap:.75rem; align-items:stretch`) containing two side-by-side cards:
+
+- **Left card** (fixed `width:170px`, `flex-shrink:0`): contains `#condition-bar` — all 16 condition selects stacked vertically (label above each select, `w-100` selects, `mb-2` spacing). Font size scaled down: `#condition-bar { font-size: 0.8em; font-weight: bold }` and `#condition-bar select { font-size: 0.8em }` (each an additional 20% reduction; select items may not fully respond on Safari due to native OS rendering).
+- **Right card** (`id="protractor-panel"`, `flex:1; min-width:0`): contains `#loading-state` and `#chart-container` (the SVG with arc plot, color legend, and conditions legend). Both cards stretch to equal height via `align-items:stretch`.
+
+**Condition selects** (`id=sel-<col>`, `w-100`):
+- `sel-date` — populated from manifest at init, options via `doyLabel()`
+- `sel-chips` — populated from manifest at init
+- 14 limit selects (`sel-<col>`) — populated by `populateLimitDropdowns()` after first fetch
+
+**Condition select labels** (displayed in the left card, top to bottom):
+Date, Chips, HRC-S CEA (°C), HRC-I CEA (°C), Prop. Line #3 (°F), Prop. Line #4 (°F), ACIS DPA (°C), ACIS DEA (°C), ACIS FP (°C), OBA Fwd Bulkhead (°F), ACA CCD (°C), IPS Tank (°F), MUPS Thruster 1B (°F), MUPS Thruster 2A (°F), ACIS PSMC (°C), Fine Sun Sensor Elec. (°F)
 
 **Sidebar** structure:
 ```
@@ -362,10 +368,6 @@ Two tables: "Limited Dwell Times (ksec)" and "Offset Dwell Times (ksec)".
 
 ## Known Issues and Things to Revisit
 
-### `tpc_fsse` not on the plot (priority: low)
-
-`tpc_fsse` (Fine Sun Sensor Elec.) has an entry in `MSID_INFO`, a limit selector in the condition bar, and appears in the conditions legend — but is not in `PREFERRED_ORDER` and therefore not rendered as a band. To add it: append `'tpc_fsse'` to `PREFERRED_ORDER` in `app.js`.
-
 ### Label placement (priority: medium)
 
 The `rotate(-45)` label approach works well for outer bands. For inner bands, labels may clip near the SVG bottom edge on smaller viewports. Options:
@@ -396,7 +398,3 @@ The inner 25% of the arc (`r < outerR × 0.25`) is reserved. Candidates:
 ### 4. Multi-condition overlay or faceting
 
 Compare pitch sensitivity across dates or chips as overlaid plots or a faceted grid.
-
-### 5. `tpc_fsse` on the plot
-
-Add `'tpc_fsse'` to `PREFERRED_ORDER` in `protractor/app.js`.

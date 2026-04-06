@@ -33,7 +33,7 @@ const App = (() => {
   // To add a new model, append its MSID here.
   const PREFERRED_ORDER = [
     '2ceahvpt_s', '2ceahvpt_i', 'pline03t', 'pline04t', '1dpamzt', '1deamzt',
-    'fptemp_11', '4rt700t', 'aacccdpt', 'pftank2t', 'pm2thv1t', 'pm1thv2t', '1pdeaat',
+    'fptemp_11', '4rt700t', 'tpc_fsse', 'aacccdpt', 'pftank2t', 'pm2thv1t', 'pm1thv2t', '1pdeaat',
   ];
 
   const HRC_MSIDS = new Set(['2ceahvpt_s', '2ceahvpt_i']);
@@ -276,10 +276,10 @@ const App = (() => {
 
     // ── Layout ──────────────────────────────────────────────────────────────
     const W = container.clientWidth || 900;
-    const H = Math.round(W * 0.60);
+    const H = Math.round(W * 0.70);
 
     const marginTop    = H * 0.12;
-    const marginBottom = H * 0.2; // 0.13;
+    const marginBottom = H * 0.25; // 0.13;
     const labelAreaW   = W * 0.22;
     const marginRight  = W * 0.04;
 
@@ -408,24 +408,24 @@ const App = (() => {
     });
 
     // ── Title ────────────────────────────────────────────────────────────────
-    const titleFontSize    = Math.max(12, pitchFontSize * 1.35);
+    const titleFontSize    = Math.max(12, pitchFontSize * 2.5);
     const subtitleFontSize = Math.max(9,  pitchFontSize * 0.88);
 
     svg.append('text')
       .attr('x', W / 2).attr('y', marginTop * 0.42)
       .attr('text-anchor', 'middle')
-      .attr('font-size', titleFontSize).attr('font-weight', '600').attr('fill', '#444')
+      .attr('font-size', titleFontSize).attr('font-weight', '500').attr('fill', '#444')
       .text('Constraint Pitch Sensitivity');
 
-    if (meta.date) {
-      let sub = meta.date;
-      if (meta.chips != null) sub += `  |  chips = ${meta.chips}`;
-      svg.append('text')
-        .attr('x', W / 2).attr('y', marginTop * 0.72)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', subtitleFontSize).attr('fill', '#777')
-        .text(sub);
-    }
+    // if (meta.date) {
+    //   let sub = meta.date;
+    //   if (meta.chips != null) sub += `  |  chips = ${meta.chips}`;
+    //   svg.append('text')
+    //     .attr('x', W / 2).attr('y', marginTop * 0.72)
+    //     .attr('text-anchor', 'middle')
+    //     .attr('font-size', subtitleFontSize).attr('fill', '#777')
+    //     .text(sub);
+    // }
 
     // ── Legend ────────────────────────────────────────────────────────────────
     drawLegend(svg, W, marginTop, pitchFontSize);
@@ -494,15 +494,15 @@ const App = (() => {
     if (!conditions || conditions.length === 0) return;
 
     const nCols   = 4;
-    const fontSize = Math.max(7, Math.min(12, pitchFontSize * 0.85));
-    const lineH   = fontSize + 5;
-    const padX    = 8, padY = 5;
+    const fontSize = Math.max(10, Math.min(14, pitchFontSize * 1));
+    const lineH   = (fontSize + 5) * 1.5;
+    const padX    = 8, padY = 6;
     const nRows   = Math.ceil(conditions.length / nCols);
     const bx   = 4;
     const bw   = W - 8;
     const colW = bw / nCols;
     const boxH = nRows * lineH + padY * 2;
-    const by = H - boxH - 4;  // pin to SVG bottom; overlaps arc only on very small screens
+    const by = H - boxH - 4;  // pin to SVG bottom with adequate padding
 
     const g = svg.append('g').attr('class', 'conditions-legend');
     g.append('rect')
