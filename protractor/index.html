@@ -95,6 +95,9 @@
 
     <!-- Left card: condition selections -->
     <div class="card" style="flex-shrink:0; width:170px;">
+      <div class="card-header py-1 px-2 text-center">
+        <span class="small fw-semibold">Configuration<br>Selection</span>
+      </div>
       <div id="condition-bar">
         <div class="mb-2">
           <label class="form-label small text-muted mb-1" for="sel-date">Date</label>
@@ -163,13 +166,47 @@
       </div>
     </div>
 
-    <!-- Right card: data graphic and legends -->
-    <div id="protractor-panel" class="card" style="flex:1; min-width:0;">
-      <div id="loading-state" class="loading-state">
-        <div class="spinner-border spinner-border-sm text-primary"></div>
-        <span>Loading data&hellip;</span>
+    <!-- Right side: column of protractor + legend -->
+    <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:.75rem;">
+
+      <!-- Top: data graphic (tabbed) -->
+      <div id="protractor-panel" class="card" style="flex:1; min-height:0;">
+        <div id="loading-state" class="loading-state">
+          <div class="spinner-border spinner-border-sm text-primary"></div>
+          <span>Loading data&hellip;</span>
+        </div>
+        <div id="chart-tabs" style="display:none">
+          <ul class="nav nav-tabs px-2 pt-2" id="chart-tab-nav" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="tab-protractor-btn"
+                      data-bs-toggle="tab" data-bs-target="#tab-protractor"
+                      type="button" role="tab">Protractor</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="tab-lineplot-btn"
+                      data-bs-toggle="tab" data-bs-target="#tab-lineplot"
+                      type="button" role="tab">Line Plot</button>
+            </li>
+          </ul>
+          <div class="tab-content">
+            <div class="tab-pane show active" id="tab-protractor" role="tabpanel">
+              <div id="chart-container"></div>
+            </div>
+            <div class="tab-pane" id="tab-lineplot" role="tabpanel">
+              <div id="lineplot-container"></div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div id="chart-container" style="display:none"></div>
+
+      <!-- Bottom: configuration legend -->
+      <div id="legend-card" class="card" style="display:none;">
+        <div class="card-header py-1 px-2">
+          <span class="small fw-semibold">Configuration</span>
+        </div>
+        <div id="legend-content" style="padding:.5rem .75rem;"></div>
+      </div>
+
     </div>
 
   </div>

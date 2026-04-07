@@ -48,13 +48,21 @@ meridian/
 
 ### What it does
 
-Three rendered outputs:
+Four rendered outputs, all driven by the same condition selectors:
 
-1. **Condition bar** — 16 dropdowns at top: Date, Chips, and 14 thermal limit selectors. Date/Chips → network fetch + re-render. Any limit → re-filter in memory + re-render (no fetch).
+1. **Configuration Selection card** — fixed 170px-wide left card with a "Configuration / Selection" card header, containing 16 dropdowns stacked vertically: Date, Chips, and 14 thermal limit selectors. Date/Chips → network fetch + full re-render. Any limit → re-filter in memory + re-render (no fetch).
 
-2. **Semicircular polar plot** — 135° arc (pitch 45–180°). One radial band per thermal model (MSID). Color coding: light red = limited dwell, dark red = active limiting constraint, light blue = offset, gray = neutral. HRC bands use half-width overlapping blue-over-red rendering.
+2. **Tabbed data graphic card** — right card with two Bootstrap tabs:
+   - **Protractor tab** — semicircular polar plot (135° arc, pitch 45–180°). One radial band per thermal model. Color coding: light red = limited dwell, dark red = active limiting constraint, light blue = offset, gray = neutral. HRC bands use half-width overlapping blue-over-red rendering.
+   - **Line Plot tab** — "Composite Dwell Capability" line chart. Pitch 45–180° on x-axis, dwell duration in kiloseconds on y-axis. See Line Plot section below.
 
-3. **Two data tables** — below the plot. Limited dwell times and offset dwell times, one row per pitch, one column per active MSID, plus Limiting Model and Composite Minimum columns.
+3. **Configuration Legend card** — HTML card below the tabbed graphic card, to the right of the Configuration Selection card. Shows the current selected values (Date, Chips, all 14 thermal limits) as a 4-column grid. Previously this was drawn inside the SVG; it was split out into its own card. This card is hidden (`display:none`) until first render.
+
+4. **Two data tables** — below the entire content area. Limited dwell times and offset dwell times, one row per pitch, one column per active MSID, plus Limiting Model and Composite Minimum columns.
+
+### ⚠️ Critical: Data Units
+
+**Dwell values in the scenario files are in SECONDS, not ksec.** This is non-obvious because the data table headers say "(ksec)" — those labels are misleading. A typical limited dwell might be 50,000 seconds (50 ksec). The line plot y-axis divides raw values by 1000 to display in ksec. The protractor and tables use raw second values directly (the protractor is purely comparative so units don't matter; the table label "(ksec)" is incorrect but pre-existing).
 
 ### Data flow
 
@@ -70,20 +78,26 @@ init()
         └── populateLimitDropdowns(rawLim) — fills all 14 limit selects with unique values from data
         └── refilterAndRender()
   └── attach change listeners: date/chips → loadAndRender; all 14 limits → refilterAndRender
-  └── attach resize handler (debounced 150ms, re-renders last args)
+  └── attach tab-shown listener: tab-lineplot-btn → re-render lineplot at correct width
+  └── attach resize handler (debounced 150ms, re-renders both protractor and lineplot)
 
 refilterAndRender()
   └── getSelectedLimits() → Map<col, numericValue>  (reads all 14 selects)
   └── filterAndAggregate(rawLim, selectedLimits) → lim  (Uint8Array mask filter → min per pitch)
   └── filterAndAggregate(rawOff, selectedLimits) → off
   └── buildConditions(rawLim, selectedLimits) → [{label, value}]
-  └── render(container, lim, off, meta, conditions) → { summary, msids, pitches }
+  └── show #chart-tabs (hides #loading-state)
+  └── render(protractorContainer, lim, off, meta, conditions) → { summary, msids, pitches }
         └── detectMsids()        — output columns only (not metadata, not _limit suffix)
         └── buildPitchSummary()  — Map<pitch, Map<msid, {limMin, offMin}>>
         └── activeMsids()        — filters to PREFERRED_ORDER, skips entirely-null MSIDs
         └── findLimitingMsids()  — HRC excluded; per pitch: lowest limMin wins
-        └── draws bands, labels, ticks, title, legend, conditions legend via D3
+        └── draws bands, labels, ticks, title, color legend via D3 SVG
         └── returns { summary, msids, pitches }
+  └── store _lastRenderArgs = [protractorContainer, lim, off, meta, conditions]
+  └── renderLineplot(lineplotContainer, lim, off, msids)
+  └── store _lastLineplotArgs = [lineplotContainer, lim, off, msids]
+  └── renderConditionsLegend(conditions) → HTML grid in #legend-content, shows #legend-card
   └── renderTables(summary, msids, pitches) → builds two Bootstrap table cards into #tables-area
 ```
 
@@ -91,7 +105,7 @@ refilterAndRender()
 
 #### `ALL_LIMITS`
 
-**Replaces the old `VARIABLE_LIMITS` + `CONSTANT_LIMITS` split.** Every limit column now gets a UI dropdown regardless of how many unique values it has. 14 entries in display order:
+Every limit column gets a UI dropdown. 14 entries in display order:
 
 ```js
 const ALL_LIMITS = [
@@ -106,7 +120,6 @@ const ALL_LIMITS = [
   { col: 'aacccdpt_limit',   msid: 'aacccdpt'   },
   { col: 'pftank2t_limit',   msid: 'pftank2t'   },
   { col: 'pm2thv1t_limit',   msid: 'pm2thv1t'   },
-  { col: 'pm1thv2t_limit',   msid: 'pm1thv2t'   },
   { col: '1pdeaat_limit',    msid: '1pdeaat'    },
   { col: 'tpc_fsse_limit',   msid: 'tpc_fsse'   },
 ];
@@ -114,11 +127,9 @@ const ALL_LIMITS = [
 
 Note: HRC limit columns use `2ceahvpt_limit_s` / `2ceahvpt_limit_i` (suffix after "limit"), unlike all other columns which use `<msid>_limit`.
 
-`populateLimitDropdowns(rawLim)` iterates `ALL_LIMITS` and reads unique non-null values from data for each. `getSelectedLimits()` reads all 14 selects. `buildConditions()` reads all values from `selectedLimits` (no longer reads raw data for "constant" limits).
-
 #### `MSID_INFO`
 
-Maps each MSID to `{ name, units }` where `units` is `'C'` or `'F'`. Used everywhere a name or unit is needed.
+Maps each MSID to `{ name, units }` where `units` is `'C'` or `'F'`:
 
 ```js
 const MSID_INFO = {
@@ -143,7 +154,7 @@ const MSID_INFO = {
 
 #### `PREFERRED_ORDER`
 
-Canonical inner→outer band render order. Only MSIDs in this list appear on the plot:
+Canonical inner→outer band render order. Only MSIDs in this list appear on the plot. Also used to assign stable colors in the line plot (index in `PREFERRED_ORDER` → index in `LINE_COLORS`):
 
 ```
 '2ceahvpt_s', '2ceahvpt_i', 'pline03t', 'pline04t', '1dpamzt', '1deamzt',
@@ -152,13 +163,13 @@ Canonical inner→outer band render order. Only MSIDs in this list appear on the
 
 #### `HRC_MSIDS`
 
-`new Set(['2ceahvpt_s', '2ceahvpt_i'])` — drives special rendering and exclusions.
+`new Set(['2ceahvpt_s', '2ceahvpt_i'])` — drives special rendering in the protractor and exclusion from the composite minimum in the line plot.
 
 #### `NON_OUTPUT_COLS`
 
 `Set(['pitch', 'date', 'datesecs', 'dwell_type', 'chips', 'roll', '2ceahvpt'])` — never treated as MSID outputs.
 
-#### `COLORS`
+#### `COLORS` (protractor arc colors)
 
 ```js
 limited:        'rgb(228, 172, 164)'       // rgba(220,80,60,0.40) composited over neutral
@@ -170,11 +181,39 @@ neutral:        'rgba(180, 180, 180, 0.28)'
 
 All colored fills are **fully opaque** (no SVG alpha). Translucent fills produce sub-pixel seam artifacts. All colored arc paths carry `.attr('stroke', <same color>).attr('stroke-width', 0.5)` to eliminate anti-aliasing seams.
 
+#### `LINE_COLORS` (line plot per-MSID colors)
+
+14-color palette, indexed by position in `PREFERRED_ORDER`. Assigned via `msidColor(msid)`:
+
+```js
+const LINE_COLORS = [
+  '#4e79a7', '#f28e2b', '#e15759', '#76b7b2',
+  '#59a14f', '#edc948', '#b07aa1', '#ff9da7',
+  '#9c755f', '#bab0ac', '#d37295', '#499894',
+  '#f4e685', '#86bcb6',
+];
+function msidColor(msid) {
+  const idx = PREFERRED_ORDER.indexOf(msid);
+  return LINE_COLORS[idx % LINE_COLORS.length];
+}
+```
+
 #### Gzip LRU cache
 
 `_gzCache = Map<url, {buffer: ArrayBuffer, lastUsed: number}>`, max `GZ_CACHE_MAX = 20` entries. Stores compressed buffers (not decompressed data). Decompression runs on every `refilterAndRender()` call but is fast relative to network fetch.
 
-### Rendering details
+### Module-level state
+
+```js
+let _loadedData       = null;  // { rawLim, rawOff, meta }
+let _lastRenderArgs   = null;  // [container, lim, off, meta, conditions] — protractor resize
+let _lastLineplotArgs = null;  // [container, lim, off, msids] — lineplot resize / tab-shown
+const _gzCache        = new Map();
+```
+
+---
+
+### Protractor rendering details
 
 #### Angle geometry
 
@@ -184,11 +223,14 @@ All colored fills are **fully opaque** (no SVG alpha). Translucent fills produce
 
 #### SVG layout
 
-ViewBox `W × H`, `H = W × 0.60`. Arc center `(cx, cy)` where `cy = H − marginBottom`.
+ViewBox `W × H`, `H = W × 0.70`. Arc center `(cx, cy)` where `cy = H − marginBottom`.
 
 - `marginTop = H × 0.12`, `marginBottom = H × 0.13`
 - `labelAreaW = W × 0.22`, `marginRight = W × 0.04`, `pitchPad = 0.10`
 - `outerR` = largest value fitting `availH / (1 + pitchPad)` and `availW / (1.707 + pitchPad)` (the 1.707 factor = 1 + 1/√2, the arc's x-span)
+- SVG uses `viewBox` + `preserveAspectRatio="xMidYMid meet"` (responsive, no explicit width/height on the SVG element)
+
+**Note on marginBottom:** Was previously `H × 0.25` to accommodate the in-SVG conditions legend. After moving the conditions legend to an HTML card, restored to `H × 0.13`.
 
 #### Band geometry
 
@@ -207,11 +249,11 @@ ViewBox `W × H`, `H = W × 0.60`. Arc center `(cx, cy)` where `cy = H − margi
 
 `2ceahvpt_s` and `2ceahvpt_i` always have `limMin` and `offMin` at the same pitches (100% overlap). Two special behaviors:
 1. **Offset is not suppressed** by the presence of `limMin` — guard omitted for HRC
-2. **Excluded from `findLimitingMsids()` and table composite minimum/limiting model**
+2. **Excluded from `findLimitingMsids()`, table composite minimum/limiting model, and line plot composite minimum**
 
 #### Limiting factor logic
 
-`findLimitingMsids(summary, msids)` receives only non-HRC active MSIDs (`msids`, not `allMsids`). Returns `Map<pitch, Set<msid>>` — the lowest `limMin` wins at each pitch; ties included.
+`findLimitingMsids(summary, msids)` receives only non-HRC active MSIDs. Returns `Map<pitch, Set<msid>>` — the lowest `limMin` wins at each pitch; ties included.
 
 **Critical**: must pass `msids` (displayed, non-HRC), NOT `allMsids`. If called with `allMsids`, a low-valued MSID can win the minimum at every pitch and suppress all dark-red rendering.
 
@@ -222,18 +264,111 @@ ViewBox `W × H`, `H = W × 0.60`. Arc center `(cx, cy)` where `cy = H − margi
 - `rotate(-45)` — text perpendicular to arc, extending lower-left; `text-anchor: 'end'`
 - `font-size = max(7, min(14, bandW × 0.72))`
 
-#### Conditions legend
+#### Color legend (in-SVG, top-right corner)
 
-`drawConditionsLegend()` draws a full-width box pinned to the SVG bottom edge (12px gap, `padY = 6`). 4 columns × 4 rows, 16 entries: Date, Chips, all 14 limit values (with °C/°F units from `MSID_INFO`). Row height uses `lineH = (fontSize + 5) * 1.2` — 20% more vertical spacing than the original `fontSize + 5`.
+`drawLegend(svg, W, marginTop, pitchFontSize)` — draws a 152px-wide box in the top-right margin of the SVG with 4 items: Limited Pitch Range, Limiting Factor, Neutral, Offset Pitch Range.
+
+---
+
+### Line Plot rendering details (`renderLineplot`)
+
+**Title:** "Composite Dwell Capability"
+
+**Axes:**
+- X: pitch in degrees, domain [45, 180], ticks at every 15°, labeled `45°`, `60°`, ..., `180°`. Label: "Pitch". Font size 16px.
+- Y: dwell in seconds (raw data units), domain [0, yMax] where `yMax = min(data_max, 100000)` (capped at 100,000 seconds = 100 ksec). After D3 `.nice()`. Tick format: `d => `${d / 1000}k`` (e.g. `"50k"` for 50,000 s). Label: "Dwell Duration (Kiloseconds)". Font size 16px.
+
+**SVG layout:**
+- `LEGEND_W = 170` (pixels reserved for the right-side legend column)
+- `W = max((container.clientWidth || 900) - LEGEND_W, 400)` — SVG width only; legend sits beside it
+- `H = round(W × 0.55)`
+- `margin = { top: 44, right: 24, bottom: 50, left: 78 }`
+- `iW = W - margin.left - margin.right`, `iH = H - margin.top - margin.bottom`
+- Explicit `width` / `height` attributes on SVG (not viewBox — unlike the protractor)
+- `clipPath id="lp-clip"` rect of `iW × iH` applied to all line paths via `<g clip-path="url(#lp-clip)">`. Ensures values above the y-cap do not draw into the margin or title area.
+
+**DOM structure inside `#lineplot-container`:**
+```
+wrapper div (flex row, align-items:flex-start)
+  chartDiv (flex:0 0 auto)
+    svg (W × H, explicit width/height)
+  legendDiv (width:170px, flex-shrink:0, flex column, padding-top:margin.top)
+    composite min entry
+    one entry per active MSID
+```
+The wrapper is a flex row so the legend column sits to the right of the SVG. `legendDiv.padding-top = margin.top` aligns the first legend item with the top of the chart area (below the title).
+
+**Line encoding:**
+- **Composite minimum** (non-HRC limited only): thick gray stroke, `stroke-width: 12`, color `#bbbbbb`, `stroke-linejoin/cap: round`. Drawn first, behind all other lines.
+- **Per-MSID limited:** solid, `stroke-width: 3`, color from `msidColor(msid)`.
+- **Per-MSID offset:** dashed, `stroke-width: 2`, `stroke-dasharray: "5,3"`, same color as limited.
+- HRC MSIDs (`2ceahvpt_s`, `2ceahvpt_i`) ARE included in per-MSID lines but are excluded from the composite minimum.
+- `lineGen.defined(d => d.v != null && isFinite(d.v))` — null/NaN values create line breaks.
+
+**Composite minimum calculation:**
+```js
+pitchArr.map((p, i) => {
+  let min = null;
+  for (const msid of msids) {
+    if (HRC_MSIDS.has(msid)) continue;
+    const v = lim[msid]?.[i];
+    if (v != null && isFinite(v)) min = min === null ? v : Math.min(min, v);
+  }
+  return { p, v: min };
+});
+```
+
+**Hover interactivity:**
+Lines are rendered in two passes inside `linesG`:
+1. **Visible pass** — limited (solid, `stroke-width:3`) and offset (dashed, `stroke-width:2`) paths drawn for each MSID. References stored in `linesByMsid: Map<msid, {limPath, offPath, limData, offData}>`.
+2. **Hit-area pass** — for each MSID, two transparent `stroke-width:10` paths (one over limData, one over offData) are appended on top of all visible lines. These carry `.style('pointer-events','stroke')` so hover registers on the stroke area regardless of color. `cursor:pointer`.
+
+On `mouseenter` (either hit area for an MSID):
+- `limPath.stroke-width` → 6 (doubled)
+- `offPath.stroke-width` → 4 (doubled)
+- The MSID's legend `<span>` → `font-weight: 700` (bold)
+
+On `mouseleave`: restores `stroke-width` 3/2 and clears `font-weight`.
+
+`legendSpanByMsid: Map<msid, HTMLSpanElement>` — built during the legend section; referenced by the hover closures. Because closures execute at call time (not definition time), the map is populated before any hover can fire.
+
+**Legend (right-side vertical column):**
+HTML items built inside `legendDiv`. First entry: composite min (gray 22×6px swatch, label "Composite Min"). Then one entry per active MSID in `msids` order: colored 16×2px swatch + `<span>` with common name. The span is stored in `legendSpanByMsid` for hover bolding.
+
+**Resize / tab-shown behavior:**
+- `shown.bs.tab` on `#tab-lineplot-btn` → re-renders with stored `_lastLineplotArgs` at correct container width
+- Window resize (debounced 150ms) → re-renders both protractor (`_lastRenderArgs`) and line plot (`_lastLineplotArgs`)
+- When lineplot is rendered while tab is hidden, `container.clientWidth` is 0; fallback is 900px. The `shown.bs.tab` event immediately re-renders at the correct width.
+
+---
 
 ### HTML structure (`protractor/index.html`)
 
 Fixed 260px dark sidebar + flex-grow `#main`.
 
-**Top area layout** — `#content-area` is a flex row (`display:flex; gap:.75rem; align-items:stretch`) containing two side-by-side cards:
+**Top area layout** — `#content-area` is a flex row (`display:flex; gap:.75rem; align-items:stretch`) containing:
 
-- **Left card** (fixed `width:170px`, `flex-shrink:0`): contains `#condition-bar` — all 16 condition selects stacked vertically (label above each select, `w-100` selects, `mb-2` spacing). Font size scaled down: `#condition-bar { font-size: 0.8em; font-weight: bold }` and `#condition-bar select { font-size: 0.8em }` (each an additional 20% reduction; select items may not fully respond on Safari due to native OS rendering).
-- **Right card** (`id="protractor-panel"`, `flex:1; min-width:0`): contains `#loading-state` and `#chart-container` (the SVG with arc plot, color legend, and conditions legend). Both cards stretch to equal height via `align-items:stretch`.
+**Left card** (fixed `width:170px`, `flex-shrink:0`):
+- Card header: "Configuration / Selection" (two-line, centered, `fw-semibold small`)
+- Body: `#condition-bar` — all 16 condition selects stacked vertically
+- `#condition-bar { font-size: 0.8em; font-weight: bold }`, `#condition-bar select { font-size: 0.8em }`
+
+**Right column** (`flex:1; min-width:0; display:flex; flex-direction:column; gap:.75rem`):
+
+  **Tabbed card** (`#protractor-panel`, `.card`, `flex:1; min-height:0`):
+  - `flex:1` causes it to grow and fill the remaining vertical space in the right column after the Configuration Legend card takes its natural height. This makes the bottom of the Configuration Legend card align with the bottom of the Configuration/Selection card on the left. Both cards are in a `#content-area` flex row with `align-items:stretch`, so the right column already fills the left card's full height.
+  - `#loading-state` — visible while fetching; hidden once `#chart-tabs` is shown
+  - `#chart-tabs` — hidden until first render; shown by `refilterAndRender()`
+    - Bootstrap tab nav: "Protractor" (`#tab-protractor-btn`) | "Line Plot" (`#tab-lineplot-btn`)
+    - Tab pane `#tab-protractor` (default active): contains `#chart-container` (SVG rendered here)
+    - Tab pane `#tab-lineplot`: contains `#lineplot-container` (wrapper div with SVG + legendDiv rendered here)
+
+  **Configuration Legend card** (`#legend-card`, `.card`, `display:none` until first render):
+  - Card header: "Configuration" (`fw-semibold small`)
+  - Body `#legend-content`: 4-column CSS grid, one cell per condition item (Date, Chips, 14 limits)
+  - Cell format: `<span style="font-weight:600;">Label:</span> Value`
+  - Font size 0.78rem
+  - Bottom edge aligns with bottom of the Configuration/Selection card because `#protractor-panel` has `flex:1` and absorbs all remaining vertical space above it.
 
 **Condition selects** (`id=sel-<col>`, `w-100`):
 - `sel-date` — populated from manifest at init, options via `doyLabel()`
@@ -242,6 +377,10 @@ Fixed 260px dark sidebar + flex-grow `#main`.
 
 **Condition select labels** (displayed in the left card, top to bottom):
 Date, Chips, HRC-S CEA (°C), HRC-I CEA (°C), Prop. Line #3 (°F), Prop. Line #4 (°F), ACIS DPA (°C), ACIS DEA (°C), ACIS FP (°C), OBA Fwd Bulkhead (°F), ACA CCD (°C), IPS Tank (°F), MUPS Thruster 1B (°F), MUPS Thruster 2A (°F), ACIS PSMC (°C), Fine Sun Sensor Elec. (°F)
+
+**Below `#content-area`:**
+- `#tables-area` — two data table cards rendered by `renderTables()`
+- `#error-panel` — Bootstrap alert, hidden by default
 
 **Sidebar** structure:
 ```
@@ -256,13 +395,6 @@ Date, Chips, HRC-S CEA (°C), HRC-I CEA (°C), Prop. Line #3 (°F), Prop. Line #
 ```
 
 After `App.init()`, the boot script fetches `../steady_states/data/manifest.json` and builds `<a href="../steady_states/?model=${entry.nav_id}" class="nav-link sub-nav-link">` links into `#ss-model-nav`. Fails silently if the manifest doesn't exist.
-
-**Module-level state:**
-```js
-let _loadedData    = null;  // { rawLim, rawOff, meta }
-let _lastRenderArgs = null; // [container, lim, off, meta, conditions]
-const _gzCache     = new Map();
-```
 
 ---
 
@@ -364,11 +496,21 @@ Active link CSS: `color: #60a5fa; background: #1e3a56; border-left: 3px solid #3
 
 Two tables: "Limited Dwell Times (ksec)" and "Offset Dwell Times (ksec)".
 
+**Note:** Table values are raw seconds from the data files. The "(ksec)" label in the table title is incorrect/misleading. Do not "fix" the table label without first verifying units with the data team, as it may affect downstream expectations.
+
 ---
 
 ## Known Issues and Things to Revisit
 
-### Label placement (priority: medium)
+### Table unit label (priority: low)
+
+The data tables are labeled "(ksec)" but values are in seconds. This is pre-existing and has not been complained about, possibly because the data team uses the tables comparatively. Confirm with data team before changing.
+
+### Line plot legend swatch for offset lines (priority: low)
+
+The right-side legend shows a solid-colored swatch for each MSID but doesn't distinguish limited (solid) vs offset (dashed). A future improvement would show two rows per MSID or use a dashed/solid indicator in the swatch. The hover interaction (which highlights both lines simultaneously) partially mitigates this gap by making the relationship between swatch and both line styles immediately visible.
+
+### Label placement on protractor (priority: medium)
 
 The `rotate(-45)` label approach works well for outer bands. For inner bands, labels may clip near the SVG bottom edge on smaller viewports. Options:
 - Clip to label area using SVG `clipPath`
@@ -378,7 +520,7 @@ The `rotate(-45)` label approach works well for outer bands. For inner bands, la
 
 ## Roadmap: Next Development Steps
 
-### 1. Center area content
+### 1. Center area content (protractor)
 
 The inner 25% of the arc (`r < outerR × 0.25`) is reserved. Candidates:
 - Composite minimum dwell time as a filled arc
@@ -390,6 +532,7 @@ The inner 25% of the arc (`r < outerR × 0.25`) is reserved. Candidates:
 - **Hover tooltip**: MSID name, pitch, limited dwell (ksec), offset dwell
 - **Band highlight**: clicking a band raises its opacity, dims others
 - **Pitch crosshair**: radial line following the mouse across all bands
+- **Line plot hover**: crosshair + tooltip showing all MSID values at a given pitch
 
 ### 3. Export
 
@@ -398,3 +541,10 @@ The inner 25% of the arc (`r < outerR × 0.25`) is reserved. Candidates:
 ### 4. Multi-condition overlay or faceting
 
 Compare pitch sensitivity across dates or chips as overlaid plots or a faceted grid.
+
+### 5. Line plot polish
+
+- Add horizontal reference line at a user-specified dwell duration
+- Consider log scale option for y-axis (wide dynamic range between MSIDs)
+- Legend refinement: distinguish limited vs offset line styles in the legend (e.g. two rows per MSID, or a dashed/solid indicator alongside the swatch)
+- Hover tooltip: show pitch value, limited dwell (ksec), and offset dwell for the hovered MSID at the cursor's x position

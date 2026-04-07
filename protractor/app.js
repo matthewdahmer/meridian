@@ -51,6 +51,18 @@ const App = (() => {
     neutral:        'rgba(180, 180, 180, 0.28)',
   };
 
+  // Colors for the line plot — one per entry in PREFERRED_ORDER.
+  const LINE_COLORS = [
+    '#4e79a7', '#f28e2b', '#e15759', '#76b7b2',
+    '#59a14f', '#edc948', '#b07aa1', '#ff9da7',
+    '#9c755f', '#bab0ac', '#d37295', '#499894',
+    '#f4e685', '#86bcb6',
+  ];
+  function msidColor(msid) {
+    const idx = PREFERRED_ORDER.indexOf(msid);
+    return LINE_COLORS[idx % LINE_COLORS.length];
+  }
+
   const GZ_CACHE_MAX = 20;  // max compressed ArrayBuffers held in memory
 
   // All thermal limit columns, in sidebar display order.
@@ -276,10 +288,10 @@ const App = (() => {
 
     // ── Layout ──────────────────────────────────────────────────────────────
     const W = container.clientWidth || 900;
-    const H = Math.round(W * 0.70);
+    const H = Math.round(W * 0.5);
 
     const marginTop    = H * 0.12;
-    const marginBottom = H * 0.25; // 0.13;
+    const marginBottom = H * 0.13;
     const labelAreaW   = W * 0.22;
     const marginRight  = W * 0.04;
 
@@ -412,7 +424,7 @@ const App = (() => {
     const subtitleFontSize = Math.max(9,  pitchFontSize * 0.88);
 
     svg.append('text')
-      .attr('x', W / 2).attr('y', marginTop * 0.42)
+      .attr('x', W / 2).attr('y', marginTop * 0.6)
       .attr('text-anchor', 'middle')
       .attr('font-size', titleFontSize).attr('font-weight', '500').attr('fill', '#444')
       .text('Constraint Pitch Sensitivity');
@@ -429,9 +441,6 @@ const App = (() => {
 
     // ── Legend ────────────────────────────────────────────────────────────────
     drawLegend(svg, W, marginTop, pitchFontSize);
-
-    // ── Conditions legend ─────────────────────────────────────────────────────
-    drawConditionsLegend(svg, W, H, cy, pitchFontSize, conditions);
 
     return { summary, msids, pitches };
   }
@@ -471,7 +480,7 @@ const App = (() => {
     });
   }
 
-  // ── Conditions legend (drawn inside SVG) ─────────────────────────────────
+  // ── Conditions legend (HTML card below chart) ────────────────────────────
 
   // Build the flat list of {label, value} pairs shown in the conditions legend.
   function buildConditions(rawLim, selectedLimits) {
@@ -489,42 +498,211 @@ const App = (() => {
     return items;
   }
 
-  // Draw conditions as a multi-column legend box inside the SVG, below the arc center.
-  function drawConditionsLegend(svg, W, H, cy, pitchFontSize, conditions) {
-    if (!conditions || conditions.length === 0) return;
+  // Render conditions as an HTML grid in the legend card below the chart.
+  function renderConditionsLegend(conditions) {
+    const card    = document.getElementById('legend-card');
+    const content = document.getElementById('legend-content');
+    if (!card || !content || !conditions || conditions.length === 0) return;
 
-    const nCols   = 4;
-    const fontSize = Math.max(10, Math.min(14, pitchFontSize * 1));
-    const lineH   = (fontSize + 5) * 1.5;
-    const padX    = 8, padY = 6;
-    const nRows   = Math.ceil(conditions.length / nCols);
-    const bx   = 4;
-    const bw   = W - 8;
-    const colW = bw / nCols;
-    const boxH = nRows * lineH + padY * 2;
-    const by = H - boxH - 4;  // pin to SVG bottom with adequate padding
+    content.innerHTML = '';
+    const grid = document.createElement('div');
+    grid.style.cssText = 'display:grid; grid-template-columns:repeat(4,1fr); gap:.15rem .75rem;';
 
-    const g = svg.append('g').attr('class', 'conditions-legend');
-    g.append('rect')
-      .attr('x', bx).attr('y', by)
-      .attr('width', bw).attr('height', boxH).attr('rx', 3)
-      .attr('fill', 'rgba(255,255,255,0.88)')
-      .attr('stroke', '#ddd').attr('stroke-width', 0.8);
-
-    conditions.forEach(({ label, value }, i) => {
-      const col = i % nCols;
-      const row = Math.floor(i / nCols);
-      const tx  = bx + padX + col * colW;
-      const ty  = by + padY + row * lineH + fontSize;
-
-      const t = g.append('text')
-        .attr('x', tx).attr('y', ty)
-        .attr('font-size', fontSize).attr('fill', '#444');
-      t.append('tspan').attr('font-weight', '600').text(label + ': ');
-      t.append('tspan').attr('font-weight', 'normal').text(value);
+    conditions.forEach(({ label, value }) => {
+      const cell = document.createElement('div');
+      cell.style.cssText = 'font-size:.78rem; color:#444; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+      cell.innerHTML = `<span style="font-weight:600;">${label}:</span> ${value}`;
+      grid.appendChild(cell);
     });
+
+    content.appendChild(grid);
+    card.style.display = '';
   }
 
+
+  // ── Line plot ─────────────────────────────────────────────────────────────
+
+  function renderLineplot(container, lim, off, msids) {
+    container.innerHTML = '';
+
+    const LEGEND_W = 170;
+    const W      = Math.max((container.clientWidth || 900) - LEGEND_W, 400);
+    const H      = Math.round(W * 0.5);
+    const margin = { top: 84, right: 24, bottom: 50, left: 78 };
+    const iW     = W - margin.left - margin.right;
+    const iH     = H - margin.top  - margin.bottom;
+
+    // Outer wrapper: chart on left, legend on right
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:flex;flex-direction:row;align-items:flex-start;';
+    const chartDiv = document.createElement('div');
+    chartDiv.style.cssText = 'flex:0 0 auto;';
+    const legendDiv = document.createElement('div');
+    legendDiv.style.cssText = [
+      `width:${LEGEND_W}px`, 'flex-shrink:0',
+      `padding-top:${margin.top}px`,
+      'display:flex', 'flex-direction:column', 'gap:.35rem',
+      'font-size:.75rem', 'color:#444',
+    ].join(';');
+    wrapper.appendChild(chartDiv);
+    wrapper.appendChild(legendDiv);
+    container.appendChild(wrapper);
+
+    const pitchArr = lim.pitch;
+
+    // Y domain: max across all lim + off values
+    let yMax = 0;
+    for (const msid of msids) {
+      for (const v of (lim[msid] ?? [])) { if (v != null && v > yMax) yMax = v; }
+      for (const v of (off[msid] ?? [])) { if (v != null && v > yMax) yMax = v; }
+    }
+    yMax = Math.min(yMax || 100000, 100000);  // cap at 100,000 seconds (100 ksec)
+
+    const xScale = d3.scaleLinear().domain([45, 180]).range([0, iW]);
+    const yScale = d3.scaleLinear().domain([0, yMax]).range([iH, 0]).nice();
+
+    const clipId = 'lp-clip';
+
+    const svg = d3.select(chartDiv).append('svg')
+      .attr('width', W).attr('height', H).attr('display', 'block');
+
+    // Clip path — restricts lines to the chart area
+    svg.append('defs').append('clipPath').attr('id', clipId)
+      .append('rect').attr('width', iW).attr('height', iH);
+
+    // Title
+    svg.append('text')
+      .attr('x', margin.left + iW / 2).attr('y', 50)
+      .attr('text-anchor', 'middle').attr('font-size', 34)
+      .attr('font-weight', '500').attr('fill', '#444')
+      .text('Composite Dwell Capability');
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Gridlines
+    g.append('g')
+      .call(d3.axisLeft(yScale).tickSize(-iW).tickFormat(''))
+      .call(ax => ax.select('.domain').remove())
+      .call(ax => ax.selectAll('.tick line')
+        .attr('stroke', '#e5e7eb').attr('stroke-dasharray', '3,3'));
+
+    // X axis
+    g.append('g').attr('transform', `translate(0,${iH})`)
+      .call(d3.axisBottom(xScale)
+        .tickValues([45,60,75,90,105,120,135,150,165,180])
+        .tickFormat(d => `${d}°`))
+      .call(ax => ax.selectAll('text').attr('font-size', 16));
+    g.append('text')
+      .attr('x', iW / 2).attr('y', iH + 42)
+      .attr('text-anchor', 'middle').attr('font-size', 16).attr('fill', '#555')
+      .text('Pitch');
+
+    // Y axis
+    g.append('g')
+      .call(d3.axisLeft(yScale).tickFormat(d => `${d / 1000}k`))
+      .call(ax => ax.selectAll('text').attr('font-size', 16));
+    g.append('text')
+      .attr('transform', 'rotate(-90)')
+      .attr('x', -iH / 2).attr('y', -62)
+      .attr('text-anchor', 'middle').attr('font-size', 16).attr('fill', '#555')
+      .text('Dwell Duration (Kiloseconds)');
+
+    const lineGen = d3.line()
+      .defined(d => d.v != null && isFinite(d.v))
+      .x(d => xScale(d.p))
+      .y(d => yScale(d.v));
+
+    // All lines drawn inside a clipped group
+    const linesG = g.append('g').attr('clip-path', `url(#${clipId})`);
+
+    // Composite minimum (non-HRC limited) — thick gray, drawn first (behind)
+    const compData = pitchArr.map((p, i) => {
+      let min = null;
+      for (const msid of msids) {
+        if (HRC_MSIDS.has(msid)) continue;
+        const v = lim[msid]?.[i];
+        if (v != null && isFinite(v)) min = min === null ? v : Math.min(min, v);
+      }
+      return { p, v: min };
+    });
+    linesG.append('path')
+      .datum(compData)
+      .attr('d', lineGen)
+      .attr('fill', 'none')
+      .attr('stroke', '#bbbbbb')
+      .attr('stroke-width', 12)
+      .attr('stroke-linejoin', 'round')
+      .attr('stroke-linecap', 'round');
+
+    const linesByMsid      = new Map();
+    const legendSpanByMsid = new Map();
+
+    // Per-MSID lines (visible, drawn first)
+    for (const msid of msids) {
+      const color   = msidColor(msid);
+      const limData = pitchArr.map((p, i) => ({ p, v: lim[msid]?.[i] ?? null }));
+      const offData = pitchArr.map((p, i) => ({ p, v: off[msid]?.[i] ?? null }));
+
+      // Limited: thin solid
+      const limPath = linesG.append('path').datum(limData)
+        .attr('d', lineGen).attr('fill', 'none')
+        .attr('stroke', color).attr('stroke-width', 3);
+
+      // Offset: thin dashed
+      const offPath = linesG.append('path').datum(offData)
+        .attr('d', lineGen).attr('fill', 'none')
+        .attr('stroke', color).attr('stroke-width', 2)
+        .attr('stroke-dasharray', '5,3');
+
+      linesByMsid.set(msid, { limPath, offPath, limData, offData });
+    }
+
+    // Per-MSID hit areas + hover handlers (drawn on top of all visible lines)
+    for (const [msid, { limPath, offPath, limData, offData }] of linesByMsid) {
+      const onEnter = () => {
+        limPath.attr('stroke-width', 6);
+        offPath.attr('stroke-width', 4);
+        const span = legendSpanByMsid.get(msid);
+        if (span) span.style.fontWeight = '700';
+      };
+      const onLeave = () => {
+        limPath.attr('stroke-width', 3);
+        offPath.attr('stroke-width', 2);
+        const span = legendSpanByMsid.get(msid);
+        if (span) span.style.fontWeight = '';
+      };
+      for (const data of [limData, offData]) {
+        linesG.append('path').datum(data)
+          .attr('d', lineGen).attr('fill', 'none')
+          .attr('stroke', 'transparent').attr('stroke-width', 10)
+          .style('pointer-events', 'stroke').style('cursor', 'pointer')
+          .on('mouseenter', onEnter).on('mouseleave', onLeave);
+      }
+    }
+
+    // ── Legend (vertical column to the right of SVG) ────────────────────────
+    const compEl = document.createElement('div');
+    compEl.style.cssText = 'display:flex;align-items:center;gap:.3rem;';
+    const compSwatch = document.createElement('div');
+    compSwatch.style.cssText = 'width:22px;height:6px;background:#999;border-radius:2px;flex-shrink:0;';
+    compEl.appendChild(compSwatch);
+    compEl.appendChild(Object.assign(document.createElement('span'), { textContent: 'Composite Min' }));
+    legendDiv.appendChild(compEl);
+
+    for (const msid of msids) {
+      const color = msidColor(msid);
+      const name  = MSID_COMMON_NAMES[msid] || msid;
+      const item  = document.createElement('div');
+      item.style.cssText = 'display:flex;align-items:center;gap:.3rem;';
+      const swatch = document.createElement('div');
+      swatch.style.cssText = `width:16px;height:2px;background:${color};flex-shrink:0;`;
+      const nameSpan = Object.assign(document.createElement('span'), { textContent: name });
+      legendSpanByMsid.set(msid, nameSpan);
+      item.appendChild(swatch);
+      item.appendChild(nameSpan);
+      legendDiv.appendChild(item);
+    }
+  }
 
   // ── Data tables ───────────────────────────────────────────────────────────
 
@@ -696,8 +874,9 @@ const App = (() => {
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
-  let _loadedData   = null;  // { rawLim, rawOff, meta } — stored after each loadRaw
-  let _lastRenderArgs = null; // [container, lim, off, meta, conditions] for resize handler
+  let _loadedData      = null;  // { rawLim, rawOff, meta }
+  let _lastRenderArgs  = null;  // [container, lim, off, meta, conditions] for resize
+  let _lastLineplotArgs = null; // [container, lim, off, msids] for resize
 
   // Re-filter in memory and re-render. No fetch. Called on limit dropdown changes.
   function refilterAndRender() {
@@ -707,11 +886,19 @@ const App = (() => {
     const lim        = filterAndAggregate(rawLim, selectedLimits);
     const off        = filterAndAggregate(rawOff, selectedLimits);
     const conditions = buildConditions(rawLim, selectedLimits);
+
     document.getElementById('loading-state').style.display = 'none';
-    const container = document.getElementById('chart-container');
-    container.style.display = 'block';
-    _lastRenderArgs = [container, lim, off, meta, conditions];
-    const { summary, msids, pitches } = render(container, lim, off, meta, conditions);
+    document.getElementById('chart-tabs').style.display = '';
+
+    const protractorContainer = document.getElementById('chart-container');
+    _lastRenderArgs = [protractorContainer, lim, off, meta, conditions];
+    const { summary, msids, pitches } = render(protractorContainer, lim, off, meta, conditions);
+
+    const lineplotContainer = document.getElementById('lineplot-container');
+    _lastLineplotArgs = [lineplotContainer, lim, off, msids];
+    renderLineplot(lineplotContainer, lim, off, msids);
+
+    renderConditionsLegend(conditions);
     renderTables(summary, msids, pitches);
   }
 
@@ -720,7 +907,7 @@ const App = (() => {
     setAllControlsDisabled(true);
     clearError();
     document.getElementById('loading-state').style.display = 'flex';
-    document.getElementById('chart-container').style.display = 'none';
+    document.getElementById('chart-tabs').style.display = 'none';
     document.getElementById('tables-area').innerHTML = '';
     try {
       const selDate  = document.getElementById('sel-date');
@@ -771,11 +958,18 @@ const App = (() => {
           ?.addEventListener('change', () => refilterAndRender());
       }
 
+      // Re-render the line plot at correct width when its tab becomes visible.
+      document.getElementById('tab-lineplot-btn')
+        ?.addEventListener('shown.bs.tab', () => {
+          if (_lastLineplotArgs) renderLineplot(..._lastLineplotArgs);
+        });
+
       let resizeTimer;
       window.addEventListener('resize', () => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
-          if (_lastRenderArgs) render(..._lastRenderArgs);
+          if (_lastRenderArgs)  render(..._lastRenderArgs);
+          if (_lastLineplotArgs) renderLineplot(..._lastLineplotArgs);
         }, 150);
       });
 
