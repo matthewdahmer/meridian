@@ -106,10 +106,11 @@ const App = (() => {
   }
 
   // Format a thermal limit value for display in a dropdown option.
-  // units: 'C' or 'F'
+  // units: 'C' or 'F'. Data values are always in Celsius; convert to °F when needed.
   function formatLimitVal(v, units) {
     if (v === null || v === undefined) return '—';
-    const num = Number.isInteger(v) ? String(v) : v.toFixed(2);
+    const display = units === 'F' ? v * 9 / 5 + 32 : v;
+    const num = Number.isInteger(display) ? String(display) : display.toFixed(2);
     return units === 'F' ? `${num} °F` : `${num} °C`;
   }
 
@@ -275,12 +276,36 @@ const App = (() => {
 
   // ── Rendering ─────────────────────────────────────────────────────────────
 
+  function renderNoData(container) {
+    container.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.style.cssText = 'padding:2rem 1.5rem;font-size:1rem;color:#444;line-height:1.8;';
+    msg.innerHTML = `
+      <p style="font-weight:600;margin-bottom:.75rem;">
+        No data exists for the chosen set of conditions.
+      </p>
+      <p style="margin-bottom:.4rem;">If you expected data to be available, consider the following notes:</p>
+      <ol style="margin:0;padding-left:1.4rem;">
+        <li>Both propulsion lines are usually set to the same limit</li>
+        <li>Both MUPS valves are usually set to the same limit</li>
+        <li>A large range of ACA limits are usually available, however not all ACA conditions have data associated with every other location condition</li>
+      </ol>
+    `;
+    container.appendChild(msg);
+  }
+
   function render(container, lim, off, meta, conditions) {
     const allMsids = detectMsids(lim);
     const summary  = buildPitchSummary(lim, off, allMsids);
     const msids    = activeMsids(summary);
     const limiting = findLimitingMsids(summary, msids.filter(m => !HRC_MSIDS.has(m)));
     const nBands   = msids.length;
+
+    if (nBands === 0) {
+      renderNoData(container);
+      const pitches = Array.from(summary.keys()).sort((a, b) => a - b);
+      return { summary, msids, pitches };
+    }
 
     const pitches   = Array.from(summary.keys()).sort((a, b) => a - b);
     const pitchStep = pitches.length > 1 ? pitches[1] - pitches[0] : 1;
@@ -525,6 +550,11 @@ const App = (() => {
   function renderLineplot(container, lim, off, msids) {
     container.innerHTML = '';
 
+    if (!msids || msids.length === 0) {
+      renderNoData(container);
+      return;
+    }
+
     const LEGEND_W = 170;
     const W      = Math.max((container.clientWidth || 900) - LEGEND_W, 400);
     const H      = Math.round(W * 0.5);
@@ -702,6 +732,12 @@ const App = (() => {
       item.appendChild(nameSpan);
       legendDiv.appendChild(item);
     }
+
+    // Notes below the chart
+    const notes = document.createElement('div');
+    notes.style.cssText = `font-size:.78rem;color:#666;margin-top:.5rem;padding-left:${margin.left}px;line-height:1.6;`;
+    notes.innerHTML = 'Solid lines represent limited dwell time<br>Dashed lines represent offset dwell time';
+    container.appendChild(notes);
   }
 
   // ── Data tables ───────────────────────────────────────────────────────────
@@ -798,8 +834,8 @@ const App = (() => {
       return card;
     }
 
-    area.appendChild(makeTableCard('Limited Dwell Times (ksec)', e => e?.limMin ?? null));
-    area.appendChild(makeTableCard('Offset Dwell Times (ksec)',  e => e?.offMin ?? null));
+    area.appendChild(makeTableCard('Limited Dwell Times (sec)', e => e?.limMin ?? null));
+    area.appendChild(makeTableCard('Offset Dwell Times (sec)',  e => e?.offMin ?? null));
   }
 
   // ── Error display ─────────────────────────────────────────────────────────

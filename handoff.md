@@ -62,7 +62,9 @@ Four rendered outputs, all driven by the same condition selectors:
 
 ### ⚠️ Critical: Data Units
 
-**Dwell values in the scenario files are in SECONDS, not ksec.** This is non-obvious because the data table headers say "(ksec)" — those labels are misleading. A typical limited dwell might be 50,000 seconds (50 ksec). The line plot y-axis divides raw values by 1000 to display in ksec. The protractor and tables use raw second values directly (the protractor is purely comparative so units don't matter; the table label "(ksec)" is incorrect but pre-existing).
+**Dwell values in the scenario files are in SECONDS, not ksec.** A typical limited dwell might be 50,000 seconds (50 ksec). The line plot y-axis divides raw values by 1000 to display in ksec. The protractor uses raw second values comparatively (units don't matter for the color logic). Data tables display raw seconds and are labeled "(sec)" — the label was corrected from the original "(ksec)" in April 2026.
+
+**Thermal limit values in the scenario files are always in Celsius**, regardless of which MSID they belong to. `formatLimitVal(v, units)` handles the conversion: when `units === 'F'`, it applies `v * 9/5 + 32` before formatting. This affects both the limit dropdown option labels and the Configuration Legend card values. The unit string shown in the UI (`°C` or `°F`) comes from `MSID_INFO[msid].units`.
 
 ### Data flow
 
@@ -91,11 +93,13 @@ refilterAndRender()
         └── detectMsids()        — output columns only (not metadata, not _limit suffix)
         └── buildPitchSummary()  — Map<pitch, Map<msid, {limMin, offMin}>>
         └── activeMsids()        — filters to PREFERRED_ORDER, skips entirely-null MSIDs
+        └── if msids.length === 0 → renderNoData(container); return { summary, msids:[], pitches }
         └── findLimitingMsids()  — HRC excluded; per pitch: lowest limMin wins
         └── draws bands, labels, ticks, title, color legend via D3 SVG
         └── returns { summary, msids, pitches }
   └── store _lastRenderArgs = [protractorContainer, lim, off, meta, conditions]
   └── renderLineplot(lineplotContainer, lim, off, msids)
+        └── if msids.length === 0 → renderNoData(container); return
   └── store _lastLineplotArgs = [lineplotContainer, lim, off, msids]
   └── renderConditionsLegend(conditions) → HTML grid in #legend-content, shows #legend-card
   └── renderTables(summary, msids, pitches) → builds two Bootstrap table cards into #tables-area
@@ -197,6 +201,32 @@ function msidColor(msid) {
   return LINE_COLORS[idx % LINE_COLORS.length];
 }
 ```
+
+#### `formatLimitVal(v, units)`
+
+Formats a thermal limit value for display in dropdown options and the Configuration Legend card. **Data values are always in Celsius.** When `units === 'F'`, converts via `v * 9/5 + 32` before formatting. Integer results display without decimal places; non-integer results use `.toFixed(2)`. Returns `"—"` for null/undefined.
+
+```js
+function formatLimitVal(v, units) {
+  if (v === null || v === undefined) return '—';
+  const display = units === 'F' ? v * 9 / 5 + 32 : v;
+  const num = Number.isInteger(display) ? String(display) : display.toFixed(2);
+  return units === 'F' ? `${num} °F` : `${num} °C`;
+}
+```
+
+#### `renderNoData(container)`
+
+Shared helper called by both `render()` and `renderLineplot()` when `activeMsids()` returns an empty array (no MSIDs have non-null values for the selected conditions). Clears the container and injects an explanatory HTML message at 1rem font size:
+
+> **No data exists for the chosen set of conditions.**
+>
+> If you expected data to be available, consider the following notes:
+> 1. Both propulsion lines are usually set to the same limit
+> 2. Both MUPS valves are usually set to the same limit
+> 3. A large range of ACA limits are usually available, however not all ACA conditions have data associated with every other location condition
+
+When `render()` calls `renderNoData()`, it still computes and returns `{ summary, msids: [], pitches }` so `refilterAndRender()` can pass empty msids to `renderLineplot()` and `renderTables()` without errors.
 
 #### Gzip LRU cache
 
@@ -334,6 +364,17 @@ On `mouseleave`: restores `stroke-width` 3/2 and clears `font-weight`.
 
 **Legend (right-side vertical column):**
 HTML items built inside `legendDiv`. First entry: composite min (gray 22×6px swatch, label "Composite Min"). Then one entry per active MSID in `msids` order: colored 16×2px swatch + `<span>` with common name. The span is stored in `legendSpanByMsid` for hover bolding.
+
+**Line-type notes (below the chart):**
+After the flex `wrapper` (chart + legend) is appended to `container`, a separate `<div>` is appended directly to `container` with the following text (two lines):
+
+> Solid lines represent limited dwell time
+> Dashed lines represent offset dwell time
+
+Style: `font-size:.78rem; color:#666; margin-top:.5rem; padding-left:${margin.left}px; line-height:1.6`. The `padding-left` matches the chart's left margin (78px) so the text aligns with the left edge of the plot area. Rendered via `innerHTML` with a `<br>` separator.
+
+**No-data state:**
+If `msids` is empty or falsy, `renderNoData(container)` is called immediately and the function returns without rendering any SVG. See `renderNoData` in Key Constants section.
 
 **Resize / tab-shown behavior:**
 - `shown.bs.tab` on `#tab-lineplot-btn` → re-renders with stored `_lastLineplotArgs` at correct container width
@@ -494,21 +535,21 @@ Active link CSS: `color: #60a5fa; background: #1e3a56; border-left: 3px solid #3
 - `null` → `"—"`, numbers → `toFixed(1)`
 - Limiting Model and Composite Minimum exclude HRC MSIDs; first-wins on ties
 
-Two tables: "Limited Dwell Times (ksec)" and "Offset Dwell Times (ksec)".
+Two tables: "Limited Dwell Times (sec)" and "Offset Dwell Times (sec)".
 
-**Note:** Table values are raw seconds from the data files. The "(ksec)" label in the table title is incorrect/misleading. Do not "fix" the table label without first verifying units with the data team, as it may affect downstream expectations.
+Table values are raw seconds from the data files. The unit label was corrected from "(ksec)" to "(sec)" in April 2026.
 
 ---
 
 ## Known Issues and Things to Revisit
 
-### Table unit label (priority: low)
+### ~~Table unit label~~ — resolved
 
-The data tables are labeled "(ksec)" but values are in seconds. This is pre-existing and has not been complained about, possibly because the data team uses the tables comparatively. Confirm with data team before changing.
+Table titles now correctly show "(sec)" instead of "(ksec)". Fixed April 2026.
 
-### Line plot legend swatch for offset lines (priority: low)
+### ~~Line plot legend swatch for offset lines~~ — resolved
 
-The right-side legend shows a solid-colored swatch for each MSID but doesn't distinguish limited (solid) vs offset (dashed). A future improvement would show two rows per MSID or use a dashed/solid indicator in the swatch. The hover interaction (which highlights both lines simultaneously) partially mitigates this gap by making the relationship between swatch and both line styles immediately visible.
+A note below the line plot now reads "Solid lines represent limited dwell time / Dashed lines represent offset dwell time". Added April 2026.
 
 ### Label placement on protractor (priority: medium)
 
@@ -546,5 +587,4 @@ Compare pitch sensitivity across dates or chips as overlaid plots or a faceted g
 
 - Add horizontal reference line at a user-specified dwell duration
 - Consider log scale option for y-axis (wide dynamic range between MSIDs)
-- Legend refinement: distinguish limited vs offset line styles in the legend (e.g. two rows per MSID, or a dashed/solid indicator alongside the swatch)
 - Hover tooltip: show pitch value, limited dwell (ksec), and offset dwell for the hovered MSID at the cursor's x position
