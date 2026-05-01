@@ -53,6 +53,23 @@ def build(output_dir: Path, force: bool = False) -> None:
             "Run xija_steady_states to generate it before deploying."
         )
 
+    # ── Model Dashboard ────────────────────────────────────────────────────────
+    md_src = Path("model_dash")
+    md_dst = output_dir / "model_dash"
+    md_dst.mkdir()
+
+    print("Copying model_dash static files...")
+    shutil.copy(md_src / "index.html", md_dst / "index.html")
+    shutil.copy(md_src / "app.js",     md_dst / "app.js")
+    shutil.copytree(md_src / "vendor", md_dst / "vendor")
+
+    md_data = md_src / "data"
+    if md_data.exists():
+        print("Copying model_dash data...")
+        shutil.copytree(md_data, md_dst / "data")
+    else:
+        print("Warning: model_dash/data/ not found.")
+
     print(f"Done. Site assembled in {output_dir}/")
     print(f"  Serve with: python -m http.server 8765 --directory {output_dir}")
 

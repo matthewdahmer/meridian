@@ -119,6 +119,14 @@
     <div class="collapse show" id="ss-collapse">
       <ul class="nav flex-column" id="sidebar-nav"></ul>
     </div>
+
+    <a href="#md-collapse" data-bs-toggle="collapse"
+       class="d-flex justify-content-between align-items-center" id="nav-md-toggle">
+      Model Dashboard <span>&#9660;</span>
+    </a>
+    <div class="collapse" id="md-collapse">
+      <ul id="md-model-nav" style="list-style:none;padding:0;margin:0"></ul>
+    </div>
   </nav>
 </div>
 
@@ -458,6 +466,23 @@
       selectModel(modelParam);
     }
   })();
+
+  // Populate Model Dashboard sidebar links from model_dash manifest.
+  fetch('../model_dash/data/manifest.json')
+    .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+    .then(manifest => {
+      const ul = document.getElementById('md-model-nav');
+      manifest.forEach(entry => {
+        const li = document.createElement('li');
+        const a  = document.createElement('a');
+        a.href      = `../model_dash/?model=${entry.nav_id}`;
+        a.textContent = entry.display_name;
+        a.className = 'nav-link sub-nav-link';
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+    })
+    .catch(() => {});
 </script>
 </body>
 </html>
