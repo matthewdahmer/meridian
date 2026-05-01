@@ -341,19 +341,26 @@ const App = (() => {
       }
 
       if (showHighlight && hl) {
-        const hlObsPts = [], hlPredPts = [];
+        const hlPairs = [];
         for (let i = 0; i < dates.length; i++) {
-          if (hl[i] === 1) {
-            if (obs[i]  !== null) hlObsPts.push({ d: dates[i], v: obs[i]  });
-            if (pred[i] !== null) hlPredPts.push({ d: dates[i], v: pred[i] });
+          if (hl[i] === 1 && obs[i] !== null && pred[i] !== null) {
+            hlPairs.push({ d: dates[i], o: obs[i], p: pred[i] });
           }
         }
-        pg.selectAll(null).data(hlObsPts).enter().append('circle')
-          .attr('cx', p => xSc(p.d)).attr('cy', p => ySc(p.v))
-          .attr('r', 3).attr('fill', '#22c55e').attr('pointer-events', 'none');
-        pg.selectAll(null).data(hlPredPts).enter().append('circle')
-          .attr('cx', p => xSc(p.d)).attr('cy', p => ySc(p.v))
-          .attr('r', 3).attr('fill', '#f97316').attr('pointer-events', 'none');
+        // Vertical segments connecting telemetry to model at each highlighted point
+        hlPairs.forEach(pt => {
+          pg.append('line')
+            .attr('x1', xSc(pt.d)).attr('x2', xSc(pt.d))
+            .attr('y1', ySc(pt.o)).attr('y2', ySc(pt.p))
+            .attr('stroke', '#374151').attr('stroke-width', 2).attr('pointer-events', 'none');
+        });
+        // Black dots for telemetry and model
+        pg.selectAll(null).data(hlPairs).enter().append('circle')
+          .attr('cx', p => xSc(p.d)).attr('cy', p => ySc(p.o))
+          .attr('r', 3).attr('fill', '#374151').attr('pointer-events', 'none');
+        pg.selectAll(null).data(hlPairs).enter().append('circle')
+          .attr('cx', p => xSc(p.d)).attr('cy', p => ySc(p.p))
+          .attr('r', 3).attr('fill', '#374151').attr('pointer-events', 'none');
       }
 
       const hline = addHoverLine(g, w, h);
@@ -548,7 +555,7 @@ const App = (() => {
         pg.selectAll(null).data(pts.filter(d => d.hlOn)).enter().append('circle')
           .attr('cx', d => xSc(d.r))
           .attr('cy', d => ySc(d.o + (jitter ? d.ji : 0)))
-          .attr('r', 3).attr('fill', '#22c55e').attr('opacity', 0.85)
+          .attr('r', 3).attr('fill', '#374151').attr('opacity', 0.85)
           .attr('pointer-events', 'none');
       }
 
@@ -650,7 +657,7 @@ const App = (() => {
         }
         pg.selectAll(null).data(hlPts).enter().append('circle')
           .attr('cx', p => xSc(p.d)).attr('cy', p => ySc(p.v))
-          .attr('r', 3).attr('fill', '#22c55e').attr('pointer-events', 'none');
+          .attr('r', 3).attr('fill', '#374151').attr('pointer-events', 'none');
       }
 
       const hline = addHoverLine(g, w, h);
@@ -696,6 +703,10 @@ const App = (() => {
     const margin = { top: 24, right: 30, bottom: 52, left: 85 };
 
     const validRes = data.residuals.filter(v => v !== null);
+    // Highlight residuals: same index alignment as data.residuals / cfg.hl
+    const hlRes = cfg.hl
+      ? data.residuals.filter((v, i) => v !== null && cfg.hl[i] === 1)
+      : [];
     const pad = v => { const r = (v[1] - v[0]) * 0.04; return [v[0] - r, v[1] + r]; };
     const fullErrorExt = cfg.errorRange ?? pad([d3.min(validRes), d3.max(validRes)]);
     const autoNBins = Math.max(10, Math.min(80, Math.ceil(Math.log2(validRes.length)) + 1));
@@ -704,7 +715,9 @@ const App = (() => {
       ? d3.range(fullErrorExt[0], fullErrorExt[1] + cfg.histBinSize, cfg.histBinSize)
       : null;
 
-    let errorExt = [...fullErrorExt];
+    let errorExt      = [...fullErrorExt];
+    let showNormal    = true;
+    let showHighlight = true;
 
     function setErrorX(d) { errorExt = d; draw(); }
     links.sub('errorX', setErrorX);
@@ -715,10 +728,16 @@ const App = (() => {
 
       const thresholds = histThresholdsOverride ?? xSc.ticks(autoNBins);
       const binGen = d3.bin().domain(errorExt).thresholds(thresholds);
-      const bins = binGen(validRes);
+      const bins   = binGen(validRes);
+      const hlBins = hlRes.length > 0 ? binGen(hlRes) : [];
       const binWidth = bins.length > 1 ? bins[0].x1 - bins[0].x0 : errorExt[1] - errorExt[0];
 
-      const ySc = d3.scaleLinear().domain([0, d3.max(bins, d => d.length) * 1.08 || 1]).range([h, 0]);
+      const maxCount = Math.max(
+        1,
+        showNormal    ? (d3.max(bins,   d => d.length) || 0) : 0,
+        showHighlight && hlBins.length ? (d3.max(hlBins, d => d.length) || 0) : 0,
+      );
+      const ySc = d3.scaleLinear().domain([0, maxCount * 1.08]).range([h, 0]);
 
       addGridlines(g, xSc, ySc, w, h);
       g.append('g').attr('transform', `translate(0,${h})`).call(d3.axisBottom(xSc).ticks(5))
@@ -736,12 +755,23 @@ const App = (() => {
       defs.append('clipPath').attr('id', clipId).append('rect').attr('width', w).attr('height', h);
       const pg = g.append('g').attr('clip-path', `url(#${clipId})`);
 
-      pg.selectAll('rect').data(bins).enter().append('rect')
-        .attr('x', d => xSc(d.x0) + 0.5)
-        .attr('y', d => ySc(d.length))
-        .attr('width', d => Math.max(0, xSc(d.x1) - xSc(d.x0) - 1))
-        .attr('height', d => h - ySc(d.length))
-        .attr('fill', '#3b82f6').attr('opacity', 0.75).attr('pointer-events', 'none');
+      if (showNormal) {
+        pg.selectAll(null).data(bins).enter().append('rect')
+          .attr('x', d => xSc(d.x0) + 0.5)
+          .attr('y', d => ySc(d.length))
+          .attr('width', d => Math.max(0, xSc(d.x1) - xSc(d.x0) - 1))
+          .attr('height', d => h - ySc(d.length))
+          .attr('fill', '#3b82f6').attr('opacity', 0.75).attr('pointer-events', 'none');
+      }
+
+      if (showHighlight && hlBins.length) {
+        pg.selectAll(null).data(hlBins).enter().append('rect')
+          .attr('x', d => xSc(d.x0) + 0.5)
+          .attr('y', d => ySc(d.length))
+          .attr('width', d => Math.max(0, xSc(d.x1) - xSc(d.x0) - 1))
+          .attr('height', d => h - ySc(d.length))
+          .attr('fill', '#374151').attr('opacity', 0.75).attr('pointer-events', 'none');
+      }
 
       const hline = addHoverLine(g, w, h);
 
@@ -772,11 +802,12 @@ const App = (() => {
           if (bi >= 0) {
             const b = bins[bi];
             const pctile = (binCum[bi] / total * 100).toFixed(1);
-            showTip(
-              `[${b.x0.toFixed(3)}, ${b.x1.toFixed(3)}] ${fmtUnits(data.units)}<br>` +
-              `Count: ${b.length}<br>Cumulative: ${pctile}%`,
-              event.clientX, event.clientY
-            );
+            let tip = `[${b.x0.toFixed(3)}, ${b.x1.toFixed(3)}] ${fmtUnits(data.units)}<br>` +
+                      `Count: ${b.length}<br>Cumulative: ${pctile}%`;
+            if (showHighlight && hlBins.length) {
+              tip += `<br>215PCAST off: ${hlBins[bi]?.length ?? 0}`;
+            }
+            showTip(tip, event.clientX, event.clientY);
           } else {
             hideTip();
           }
@@ -784,7 +815,11 @@ const App = (() => {
         .on('mouseleave.hover', () => { hline.style('display', 'none'); hideTip(); });
     }
 
-    return { draw };
+    return {
+      draw,
+      setShowNormal(v)    { showNormal    = v; draw(); },
+      setShowHighlight(v) { showHighlight = v; draw(); },
+    };
   }
 
   // ── Pitch-bin error chart (single panel) ─────────────────────────────────
@@ -1166,6 +1201,9 @@ const App = (() => {
   // ── Quad plot orchestrator ────────────────────────────────────────────────
   function renderQuadPlot(container, data, opts = {}) {
     data = prepareDisplayData(data);  // convert °C→°F for F-unit models
+    
+    console.log(data.msid)
+
     const cfg = window.ModelDashConfig?.models?.[data.msid]?.performanceOverview ?? {};
     const lnk = makeLinks();
 
@@ -1184,13 +1222,15 @@ const App = (() => {
     const sharedErrorExt = cfg.errorRange ??
       _pad([d3.min(_validR), d3.max(_validR)]);
 
-    // prepareDisplayData shallow-spreads rawData, so inputs carries through untouched
-    const hlArr = data.inputs?.['215pcast_off'] ?? null;
+    // 215pcast_off highlight is only meaningful for the 2ceahvpt model family
+    const hlArr = (data.msid ?? '').startsWith('2ceahvpt')
+      ? (data.inputs?.['215pcast_off'] ?? null)
+      : null;
 
     const tsCfg   = { ...cfg, tempRange: sharedTempExt, hl: hlArr };
     const scCfg   = { ...cfg, tempRange: sharedTempExt, errorRange: sharedErrorExt, hl: hlArr };
     const etCfg   = { ...cfg, hl: hlArr };
-    const histCfg = { ...cfg, errorRange: sharedErrorExt };
+    const histCfg = { ...cfg, errorRange: sharedErrorExt, hl: hlArr };
 
     const grid = document.createElement('div');
     grid.className = 'quad-grid';
@@ -1214,8 +1254,8 @@ const App = (() => {
 
     return {
       setJitter(v)        { scChart.setJitter(v); },
-      setShowNormal(v)    { tsChart.setShowNormal(v); scChart.setShowNormal(v); etChart.setShowNormal(v); },
-      setShowHighlight(v) { tsChart.setShowHighlight(v); scChart.setShowHighlight(v); etChart.setShowHighlight(v); },
+      setShowNormal(v)    { tsChart.setShowNormal(v); scChart.setShowNormal(v); etChart.setShowNormal(v); histChart.setShowNormal(v); },
+      setShowHighlight(v) { tsChart.setShowHighlight(v); scChart.setShowHighlight(v); etChart.setShowHighlight(v); histChart.setShowHighlight(v); },
       hasHighlight()      { return !!hlArr; },
       destroy()           { ro.disconnect(); },
     };
