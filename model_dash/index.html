@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Model Performance Dashboard</title>
+  <link rel="stylesheet" href="vendor/bootstrap.min.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { display: flex; flex-direction: row; background: #f3f4f6; font-family: Arial, sans-serif; }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 260px; min-width: 260px; background: #1e2937;
+      display: flex; flex-direction: column; height: 100vh;
+      position: sticky; top: 0; overflow-y: auto;
+    }
+    #sidebar .brand {
+      color: #f9fafb; font-size: .9rem; font-weight: 600;
+      padding: .75rem 1rem; border-bottom: 1px solid #374151;
+    }
+    #sidebar .section-label {
+      color: #6b7280; font-size: .68rem; text-transform: uppercase;
+      letter-spacing: .08em; padding: .6rem 1rem .2rem;
+    }
+    #sidebar nav a {
+      display: block; color: #9ca3af; font-size: .82rem;
+      padding: .35rem 1rem; border-left: 3px solid transparent;
+      text-decoration: none;
+    }
+    #sidebar nav a:hover { color: #f3f4f6; background: #273345; }
+    #sidebar nav a.active { color: #60a5fa; background: #1e3a56; border-left-color: #3b82f6; }
+    #sidebar nav .sub-nav-link { padding-left: 1.75rem; font-size: .78rem; }
+
+    /* ── Main ── */
+    #main { flex: 1; padding: 1rem 1.25rem; min-width: 0; overflow-y: auto; }
+
+    /* ── Quad plot grid ── */
+    .quad-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      grid-template-rows: 2fr 1fr;
+      gap: 6px;
+      height: 100%;
+    }
+    .quad-cell {
+      background: #fff;
+      border-radius: .375rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* ── Loading state ── */
+    .quad-loading {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; min-height: 300px; gap: .5rem; color: #6b7280;
+    }
+
+    /* ── D3 brush styling ── */
+    .brush .selection {
+      fill: #3b82f6; fill-opacity: 0.12;
+      stroke: #3b82f6; stroke-width: 1;
+    }
+
+    /* Mobile */
+    #mobile-nav-btn { display: none; }
+    @media (max-width: 767px) {
+      #sidebar { display: none; }
+      #mobile-nav-btn { display: block; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div class="brand">Meridian</div>
+  <div class="section-label">Views</div>
+  <nav>
+    <a href="../protractor/" id="nav-protractor">Pitch Sensitivity</a>
+
+    <a href="#ss-collapse" data-bs-toggle="collapse"
+       class="d-flex justify-content-between align-items-center" id="nav-ss-toggle">
+      Steady States <span>&#9660;</span>
+    </a>
+    <div class="collapse" id="ss-collapse">
+      <ul id="ss-model-nav" style="list-style:none;padding:0;margin:0"></ul>
+    </div>
+
+    <a href="#md-collapse" data-bs-toggle="collapse"
+       class="d-flex justify-content-between align-items-center active" id="nav-md-toggle">
+      Model Dashboard <span>&#9660;</span>
+    </a>
+    <div class="collapse show" id="md-collapse">
+      <ul id="md-model-nav" style="list-style:none;padding:0;margin:0"></ul>
+    </div>
+  </nav>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <button id="mobile-nav-btn" class="btn btn-outline-secondary btn-sm mb-2"
+          data-bs-toggle="offcanvas" data-bs-target="#offcanvasSidebar">&#9776; Menu</button>
+
+  <!-- Welcome panel -->
+  <div id="welcome-panel" class="text-center py-5 text-muted">
+    <h5 class="mb-2">Model Performance Dashboard</h5>
+    <p class="mb-0 small">Select a model from the sidebar to view performance data.</p>
+  </div>
+
+  <!-- Model panel -->
+  <div id="model-panel" style="display:none">
+
+    <h6 id="model-title" class="mb-2 fw-semibold"></h6>
+
+    <!-- Model Provenance card -->
+    <div class="card mb-3" id="provenance-card" style="display:none">
+      <div class="card-header py-2 d-flex align-items-center gap-2">
+        <span class="small fw-semibold text-muted">Model Provenance</span>
+      </div>
+      <div class="card-body p-0" id="provenance-body"></div>
+    </div>
+
+    <!-- Quad plot card -->
+    <div class="card mb-3">
+      <div class="card-header py-2 d-flex align-items-center gap-3">
+        <span class="small fw-semibold text-muted">Performance Overview</span>
+        <div class="ms-auto d-flex align-items-center gap-3">
+          <div id="hl-controls" class="d-flex align-items-center gap-3" style="display:none!important">
+            <div class="form-check form-check-inline mb-0">
+              <input class="form-check-input" type="checkbox" id="ctrl-normal" checked>
+              <label class="form-check-label small text-muted" for="ctrl-normal">Normal data</label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+              <input class="form-check-input" type="checkbox" id="ctrl-highlight" checked>
+              <label class="form-check-label small text-muted" for="ctrl-highlight">215PCAST off</label>
+            </div>
+          </div>
+          <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="checkbox" id="ctrl-jitter" checked>
+            <label class="form-check-label small text-muted" for="ctrl-jitter">Jitter scatter</label>
+          </div>
+          <span class="text-muted" style="font-size:.72rem">Zoom: drag box &nbsp;|&nbsp; Reset: dbl-click</span>
+        </div>
+      </div>
+      <div class="card-body p-2" style="height:calc(100vh - 130px)">
+        <div id="quad-container" style="height:100%"></div>
+      </div>
+    </div>
+
+    <!-- Pitch-error segments card (rendered by JS if data present) -->
+    <div id="pitch-error-container"></div>
+
+    <!-- Dwell exploration card (rendered by JS if data present) -->
+    <div id="dwell-exploration-container"></div>
+
+    <!-- Solarheat parameters card (rendered by JS if data present) -->
+    <div id="solarheat-container"></div>
+
+    <!-- DPA power parameters card (rendered by JS if data present) -->
+    <div id="dpa-power-container"></div>
+
+  </div>
+
+  <!-- Error alert -->
+  <div id="error-panel" class="alert alert-danger mt-3" style="display:none" role="alert">
+    <strong>Error:</strong> <span id="error-msg"></span>
+  </div>
+</div>
+
+<script src="vendor/d3.min.js"></script>
+<script src="vendor/bootstrap.bundle.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  let currentNavId        = null;
+  let currentPlot         = null;
+  let currentPitchPlot    = null;
+  let currentDwellPlot    = null;
+  let currentSolarheatPlot = null;
+  let currentDpaPowerPlot  = null;
+
+  function showError(msg) {
+    document.getElementById('error-panel').style.display = '';
+    document.getElementById('error-msg').textContent = msg;
+  }
+  function clearError() { document.getElementById('error-panel').style.display = 'none'; }
+
+  function fmtLimitKey(key) {
+    return key.split('.').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' - ');
+  }
+
+  function renderProvenance(data) {
+    const body = document.getElementById('provenance-body');
+    const card = document.getElementById('provenance-card');
+
+    const units     = (data.units === 'degF') ? 'Fahrenheit' : 'Celsius';
+    const limitType = data.limit_type === 'max' ? 'Max' : data.limit_type === 'min' ? 'Min' : (data.limit_type || '—');
+
+    const allLimits = data.all_limits || {};
+    const limitEntries = Object.entries(allLimits);
+    const allLimitsHtml = limitEntries.length
+      ? limitEntries.map(([k, v]) => `<div>${fmtLimitKey(k)}: ${v}</div>`).join('')
+      : '<span class="text-muted">—</span>';
+
+    const url = data.spec_github_url;
+    const urlHtml = url
+      ? `<a href="${url}" target="_blank" rel="noopener noreferrer" style="font-family:monospace;font-size:.75rem">${url.split('/').pop()}</a>`
+      : '<span class="text-muted">—</span>';
+
+    const rows = [
+      ['MSID',                   `<span style="font-family:monospace">${(data.msid || '').toUpperCase()}</span>`],
+      ['Units',                  units],
+      ['Limit',                  data.limit != null ? data.limit : '<span class="text-muted">—</span>'],
+      ['Limit Type',             limitType],
+      ['All Limits',             allLimitsHtml],
+      ['Model Specification MD5',`<span style="font-family:monospace">${data.spec_md5 || '<span class=\'text-muted\'>—</span>'}</span>`],
+      ['Model URL',              urlHtml],
+      ['Model Release Version',  data.spec_github_release || '<span class="text-muted">—</span>'],
+      ['Start Date',             `<span style="font-family:monospace">${data.datestart || '—'}</span>`],
+      ['End Date',               `<span style="font-family:monospace">${data.datestop  || '—'}</span>`],
+    ];
+
+    body.innerHTML = `
+      <table class="table table-sm table-borderless mb-0" style="font-size:.8rem">
+        <tbody>
+          ${rows.map(([label, value]) => `
+            <tr>
+              <td class="text-muted ps-3 pe-3 text-nowrap" style="width:200px;vertical-align:top">${label}</td>
+              <td class="pe-3">${value}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+
+    card.style.display = '';
+  }
+
+  function setActiveNav(navId) {
+    document.querySelectorAll('#md-model-nav .nav-link').forEach(a => {
+      a.classList.toggle('active', a.dataset.navId === navId);
+    });
+  }
+
+  async function selectModel(navId) {
+    if (navId === currentNavId) return;
+    currentNavId = navId;
+    history.replaceState(null, '', `?model=${encodeURIComponent(navId)}`);
+    setActiveNav(navId);
+    clearError();
+
+    // Destroy previous plots if any
+    if (currentPlot)          { currentPlot.destroy();          currentPlot          = null; }
+    if (currentPitchPlot)     { currentPitchPlot.destroy();     currentPitchPlot     = null; }
+    if (currentDwellPlot)     { currentDwellPlot.destroy();     currentDwellPlot     = null; }
+    if (currentSolarheatPlot) { currentSolarheatPlot.destroy(); currentSolarheatPlot = null; }
+    if (currentDpaPowerPlot)  { currentDpaPowerPlot.destroy();  currentDpaPowerPlot  = null; }
+    document.getElementById('provenance-card').style.display = 'none';
+
+    // Show model panel
+    const panel = document.getElementById('model-panel');
+    panel.style.display = '';
+    document.getElementById('welcome-panel').style.display = 'none';
+
+    const entry = (App._cache.manifest || []).find(e => e.nav_id === navId);
+    document.getElementById('model-title').textContent = entry ? entry.display_name : navId;
+
+    // Loading spinner
+    const qc = document.getElementById('quad-container');
+    qc.innerHTML = `<div class="quad-loading">
+      <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+      <span class="small">Loading model data&hellip;</span>
+    </div>`;
+
+    let data;
+    try {
+      data = await App.loadModelData(navId);
+    } catch (err) {
+      qc.innerHTML = '';
+      showError(`Failed to load data for "${navId}": ${err.message}`);
+      return;
+    }
+
+    // Guard: user may have switched models while this was loading
+    if (currentNavId !== navId) return;
+
+    qc.innerHTML = '';
+    renderProvenance(data);
+    currentPlot = App.renderQuadPlot(qc, data, {});
+    currentPlot.setJitter(document.getElementById('ctrl-jitter').checked);
+
+    // Show highlight controls only for models that carry the 215pcast_off input
+    const hlControls = document.getElementById('hl-controls');
+    if (currentPlot.hasHighlight()) {
+      hlControls.style.removeProperty('display');
+      document.getElementById('ctrl-normal').checked    = true;
+      document.getElementById('ctrl-highlight').checked = true;
+    } else {
+      hlControls.style.display = 'none';
+    }
+
+    const pc = document.getElementById('pitch-error-container');
+    currentPitchPlot = App.renderPitchErrorCard(pc, data);
+
+    const dc = document.getElementById('dwell-exploration-container');
+    currentDwellPlot = App.renderDwellExplorationCard(dc, data);
+
+    const shc = document.getElementById('solarheat-container');
+    currentSolarheatPlot = App.renderSolarheatCard(shc, data);
+
+    const dpc = document.getElementById('dpa-power-container');
+    currentDpaPowerPlot = App.renderDpaPowerCard(dpc, data);
+  }
+
+  function buildNav(manifest) {
+    const ul = document.getElementById('md-model-nav');
+    ul.innerHTML = '';
+    manifest.forEach(entry => {
+      const li = document.createElement('li');
+      const a  = document.createElement('a');
+      a.className     = 'nav-link sub-nav-link';
+      a.href          = '#';
+      a.dataset.navId = entry.nav_id;
+      a.textContent   = entry.display_name;
+      a.addEventListener('click', e => { e.preventDefault(); selectModel(entry.nav_id); });
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+  }
+
+  // Jitter toggle
+  document.getElementById('ctrl-jitter').addEventListener('change', function () {
+    currentPlot?.setJitter(this.checked);
+  });
+
+  // Normal / highlight toggles (only active for models with 215pcast_off input)
+  document.getElementById('ctrl-normal').addEventListener('change', function () {
+    currentPlot?.setShowNormal(this.checked);
+  });
+  document.getElementById('ctrl-highlight').addEventListener('change', function () {
+    currentPlot?.setShowHighlight(this.checked);
+  });
+
+  // Init
+  (async function init() {
+    let manifest;
+    try {
+      manifest = await App.loadManifest();
+    } catch (err) {
+      showError(`Failed to load manifest: ${err.message}`);
+      return;
+    }
+    buildNav(manifest);
+
+    const params = new URLSearchParams(window.location.search);
+    const mp = params.get('model');
+    if (mp && manifest.find(e => e.nav_id === mp)) selectModel(mp);
+  })();
+
+  // Populate Steady States sidebar links
+  fetch('../steady_states/data/manifest.json')
+    .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+    .then(manifest => {
+      const ul = document.getElementById('ss-model-nav');
+      manifest.forEach(entry => {
+        const li = document.createElement('li');
+        const a  = document.createElement('a');
+        a.href = `../steady_states/?model=${entry.nav_id}`;
+        a.textContent = entry.display_name;
+        a.className = 'nav-link sub-nav-link';
+        li.appendChild(a); ul.appendChild(li);
+      });
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>
