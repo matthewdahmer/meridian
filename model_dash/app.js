@@ -525,7 +525,7 @@ const App = (() => {
         .attr('stroke-width', 1).attr('stroke-dasharray', '4,2').attr('pointer-events', 'none');
 
       // Scatter dots
-      const pts = obs.map((o, i) => ({ o, r: res[i], tn: tNorm[i], ji: jitterVals[i], hlOn: hl ? hl[i] === 1 : false }))
+      const pts = obs.map((o, i) => ({ o, r: res[i], t: ts[i], tn: tNorm[i], ji: jitterVals[i], hlOn: hl ? hl[i] === 1 : false }))
                      .filter(d => d.o !== null && d.r !== null);
       if (showNormal) {
         pg.selectAll(null).data(pts).enter().append('circle')
@@ -580,9 +580,20 @@ const App = (() => {
         .on('mousemove.hover', function (event) {
           const [mx, my] = d3.pointer(event, this);
           hline.style('display', '').attr('x1', mx).attr('x2', mx);
+          let dateStr = '';
+          if (pts.length > 0) {
+            let minDist = Infinity, best = null;
+            pts.forEach(d => {
+              const dx = xSc(d.r) - mx, dy = ySc(d.o + (jitter ? d.ji : 0)) - my;
+              const dist = dx * dx + dy * dy;
+              if (dist < minDist) { minDist = dist; best = d; }
+            });
+            if (best) dateStr = cxcToDate(best.t).toISOString().slice(0, 10);
+          }
           showTip(
             `Error: ${xSc.invert(mx).toFixed(3)} ${fmtUnits(data.units)}<br>` +
-            `Temp: ${ySc.invert(my).toFixed(3)} ${fmtUnits(data.units)}`,
+            `Temp: ${ySc.invert(my).toFixed(3)} ${fmtUnits(data.units)}` +
+            (dateStr ? `<br>Date: ${dateStr}` : ''),
             event.clientX, event.clientY
           );
         })
@@ -702,11 +713,13 @@ const App = (() => {
   function makeHistogramChart(el, data, links, cfg = {}) {
     const margin = { top: 24, right: 30, bottom: 52, left: 85 };
 
-    const validRes = data.residuals.filter(v => v !== null);
+    const validRes    = data.residuals.filter(v => v !== null);
+    const sortedRes   = [...validRes].sort(d3.ascending);
     // Highlight residuals: same index alignment as data.residuals / cfg.hl
     const hlRes = cfg.hl
       ? data.residuals.filter((v, i) => v !== null && cfg.hl[i] === 1)
       : [];
+    const sortedHlRes = [...hlRes].sort(d3.ascending);
     const pad = v => { const r = (v[1] - v[0]) * 0.04; return [v[0] - r, v[1] + r]; };
     const fullErrorExt = cfg.errorRange ?? pad([d3.min(validRes), d3.max(validRes)]);
     const autoNBins = Math.max(10, Math.min(80, Math.ceil(Math.log2(validRes.length)) + 1));
@@ -772,6 +785,31 @@ const App = (() => {
           .attr('height', d => h - ySc(d.length))
           .attr('fill', '#374151').attr('opacity', 0.75).attr('pointer-events', 'none');
       }
+
+      // Stat reference lines: use hl residuals when only 215pcast_off data is shown
+      const useHlStats = showHighlight && !showNormal && sortedHlRes.length > 0;
+      const statSrc    = useHlStats ? sortedHlRes : sortedRes;
+      const statRes    = useHlStats ? hlRes        : validRes;
+      const statLines = [
+        { v: d3.min(statSrc),              label: 'Min',  color: '#dc2626' },
+        { v: d3.quantile(statSrc, 0.05),   label: 'p5',   color: '#9ca3af' },
+        { v: d3.mean(statRes),             label: 'Mean', color: '#374151' },
+        { v: d3.quantile(statSrc, 0.95),   label: 'p95',  color: '#9ca3af' },
+        { v: d3.max(statSrc),              label: 'Max',  color: '#dc2626' },
+      ];
+      statLines.forEach(s => {
+        if (s.v == null) return;
+        const sx = xSc(s.v);
+        pg.append('line')
+          .attr('x1', sx).attr('x2', sx).attr('y1', 0).attr('y2', h)
+          .attr('stroke', s.color).attr('stroke-width', 1)
+          .attr('stroke-dasharray', '4,3').attr('pointer-events', 'none');
+        pg.append('text')
+          .attr('transform', `translate(${sx + 3},4) rotate(90)`)
+          .attr('text-anchor', 'start').attr('font-size', 11).attr('fill', s.color)
+          .attr('pointer-events', 'none')
+          .text(`${s.label}: ${s.v.toFixed(3)}`);
+      });
 
       const hline = addHoverLine(g, w, h);
 
