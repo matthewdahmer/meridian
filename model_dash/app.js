@@ -1239,9 +1239,6 @@ const App = (() => {
   // ── Quad plot orchestrator ────────────────────────────────────────────────
   function renderQuadPlot(container, data, opts = {}) {
     data = prepareDisplayData(data);  // convert °C→°F for F-unit models
-    
-    console.log(data.msid)
-
     const cfg = window.ModelDashConfig?.models?.[data.msid]?.performanceOverview ?? {};
     const lnk = makeLinks();
 
