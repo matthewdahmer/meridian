@@ -688,6 +688,7 @@ const App = (() => {
     }
 
     // Per-MSID hit areas + hover handlers (drawn on top of all visible lines)
+    const hitAreasByMsid = new Map();
     for (const [msid, { limPath, offPath, limData, offData }] of linesByMsid) {
       const onEnter = () => {
         limPath.attr('stroke-width', 6);
@@ -701,13 +702,16 @@ const App = (() => {
         const span = legendSpanByMsid.get(msid);
         if (span) span.style.fontWeight = '';
       };
+      const hitPaths = [];
       for (const data of [limData, offData]) {
-        linesG.append('path').datum(data)
+        const hp = linesG.append('path').datum(data)
           .attr('d', lineGen).attr('fill', 'none')
           .attr('stroke', 'transparent').attr('stroke-width', 10)
           .style('pointer-events', 'stroke').style('cursor', 'pointer')
           .on('mouseenter', onEnter).on('mouseleave', onLeave);
+        hitPaths.push(hp);
       }
+      hitAreasByMsid.set(msid, hitPaths);
     }
 
     // ── Legend (vertical column to the right of SVG) ────────────────────────
@@ -723,14 +727,45 @@ const App = (() => {
       const color = msidColor(msid);
       const name  = MSID_COMMON_NAMES[msid] || msid;
       const item  = document.createElement('div');
-      item.style.cssText = 'display:flex;align-items:center;gap:.3rem;';
+      item.style.cssText = 'display:flex;align-items:center;gap:.3rem;cursor:pointer;user-select:none;';
       const swatch = document.createElement('div');
-      swatch.style.cssText = `width:16px;height:2px;background:${color};flex-shrink:0;`;
       const nameSpan = Object.assign(document.createElement('span'), { textContent: name });
       legendSpanByMsid.set(msid, nameSpan);
+
+      const isHidden = hiddenMsids.has(msid);
+      swatch.style.cssText = `width:16px;height:2px;background:${isHidden ? '#ccc' : color};flex-shrink:0;`;
+      if (isHidden) nameSpan.style.color = '#bbb';
+
       item.appendChild(swatch);
       item.appendChild(nameSpan);
       legendDiv.appendChild(item);
+
+      if (isHidden) {
+        const { limPath, offPath } = linesByMsid.get(msid);
+        limPath.style('display', 'none');
+        offPath.style('display', 'none');
+        hitAreasByMsid.get(msid)?.forEach(p => p.style('pointer-events', 'none'));
+      }
+
+      item.addEventListener('click', () => {
+        if (hiddenMsids.has(msid)) {
+          hiddenMsids.delete(msid);
+          swatch.style.background = color;
+          nameSpan.style.color = '';
+          const { limPath, offPath } = linesByMsid.get(msid);
+          limPath.style('display', '');
+          offPath.style('display', '');
+          hitAreasByMsid.get(msid)?.forEach(p => p.style('pointer-events', 'stroke'));
+        } else {
+          hiddenMsids.add(msid);
+          swatch.style.background = '#ccc';
+          nameSpan.style.color = '#bbb';
+          const { limPath, offPath } = linesByMsid.get(msid);
+          limPath.style('display', 'none');
+          offPath.style('display', 'none');
+          hitAreasByMsid.get(msid)?.forEach(p => p.style('pointer-events', 'none'));
+        }
+      });
     }
 
     // Notes below the chart
@@ -894,8 +929,8 @@ const App = (() => {
 
   // Fetch and decompress scenario files; return raw (un-aggregated) columns.
   async function loadRaw(date, chips) {
-    const limUrl = `../data/${date}_limit_chips${chips}.json.gz`;
-    const offUrl = `../data/${date}_offset_chips${chips}.json.gz`;
+    const limUrl = `../timbre_data_b073e82_3.73.1/${date}_limit_chips${chips}.json.gz`;
+    const offUrl = `../timbre_data_b073e82_3.73.1/${date}_offset_chips${chips}.json.gz`;
     const [limBuf, offBuf] = await Promise.all([fetchGz(limUrl), fetchGz(offUrl)]);
     const [rawLim, rawOff] = await Promise.all([
       decompressAndParse(limBuf),
@@ -913,6 +948,7 @@ const App = (() => {
   let _loadedData      = null;  // { rawLim, rawOff, meta }
   let _lastRenderArgs  = null;  // [container, lim, off, meta, conditions] for resize
   let _lastLineplotArgs = null; // [container, lim, off, msids] for resize
+  const hiddenMsids = new Set();
 
   // Re-filter in memory and re-render. No fetch. Called on limit dropdown changes.
   function refilterAndRender() {
@@ -950,6 +986,7 @@ const App = (() => {
       const selChips = document.getElementById('sel-chips');
       _loadedData = await loadRaw(selDate.value, +selChips.value);
       populateLimitDropdowns(_loadedData.rawLim);
+      hiddenMsids.clear();
       refilterAndRender();
     } catch (err) {
       document.getElementById('loading-state').style.display = 'none';
@@ -962,7 +999,7 @@ const App = (() => {
 
   async function init() {
     try {
-      const manifest = await fetch('../data/manifest.json').then(r => {
+      const manifest = await fetch('../timbre_data_b073e82_3.73.1/manifest.json').then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}: manifest.json`);
         return r.json();
       });

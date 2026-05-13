@@ -31,7 +31,7 @@ def build(output_dir: Path, force: bool = False) -> None:
     shutil.copytree("protractor", output_dir / "protractor")
 
     print("Copying protractor data...")
-    shutil.copytree("data", output_dir / "data")
+    shutil.copytree("timbre_data_b073e82_3.73.1", output_dir / "timbre_data_b073e82_3.73.1")
 
     # ── Steady States ──────────────────────────────────────────────────────────
     ss_src = Path("steady_states")
