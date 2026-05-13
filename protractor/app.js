@@ -1014,6 +1014,103 @@ const App = (() => {
       showError(`Failed to initialize: ${err.message}`);
       console.error(err);
     }
+
+    // Changelog fetch is independent of data loading — runs in parallel.
+    fetch('./changelog.md')
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
+      .then(text => {
+        const container = document.getElementById('tab-changelog-content');
+        if (container) renderChangelogEntries(parseChangelog(text), container);
+      })
+      .catch(() => {
+        const container = document.getElementById('tab-changelog-content');
+        if (container) container.innerHTML =
+          '<span style="color:#888;font-size:.85rem;">Changelog unavailable.</span>';
+      });
+  }
+
+  // ── Changelog ─────────────────────────────────────────────────────────────
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Parse changelog.md into an array of entry objects.
+  // Each ## header starts a new entry; **Key:** value lines are metadata;
+  // markdown table rows (after the header and separator rows) are config params.
+  function parseChangelog(text) {
+    const entries = [];
+    const sections = text.split(/\n(?=## )/);
+    for (const section of sections) {
+      const firstLine = section.split('\n')[0];
+      if (!firstLine.startsWith('## ')) continue;
+      const entry = { title: firstLine.slice(3).trim(), meta: {}, params: [] };
+      let tablePhase = 0; // 0=preamble 1=header-seen 2=reading-data
+      for (const line of section.split('\n').slice(1)) {
+        const t = line.trim();
+        if (tablePhase === 0) {
+          const m = t.match(/^\*\*([^*]+)\*\*:?\s*(.*)/);
+          if (m && m[2]) { entry.meta[m[1].trim()] = m[2].trim(); continue; }
+        }
+        if (t.startsWith('|') && t.endsWith('|')) {
+          const cells = t.split('|').slice(1, -1).map(c => c.trim());
+          if (tablePhase === 0) { tablePhase = 1; continue; } // header row
+          if (tablePhase === 1) { tablePhase = 2; continue; } // separator row
+          if (cells.length >= 2) entry.params.push({ param: cells[0], values: cells[1] || '—' });
+          continue;
+        }
+        if (tablePhase > 0 && t !== '') tablePhase = 0;
+      }
+      entries.push(entry);
+    }
+    return entries;
+  }
+
+  function renderChangelogEntries(entries, container) {
+    container.innerHTML = '';
+    if (!entries || entries.length === 0) {
+      container.innerHTML = '<span style="color:#888;font-size:.85rem;">No changelog entries found.</span>';
+      return;
+    }
+    entries.forEach((entry, idx) => {
+      if (idx > 0) {
+        const hr = document.createElement('hr');
+        hr.style.cssText = 'margin:.75rem 0;border-color:#e5e7eb;';
+        container.appendChild(hr);
+      }
+      const titleEl = document.createElement('div');
+      titleEl.style.cssText = 'font-size:.9rem;font-weight:700;color:#1e3a5f;margin-bottom:.3rem;';
+      titleEl.textContent = entry.title;
+      container.appendChild(titleEl);
+      const metaKeys = Object.keys(entry.meta);
+      if (metaKeys.length > 0) {
+        const metaEl = document.createElement('div');
+        metaEl.style.cssText = 'font-size:.75rem;color:#555;margin-bottom:.45rem;display:flex;gap:1.25rem;flex-wrap:wrap;';
+        for (const k of metaKeys) {
+          const span = document.createElement('span');
+          span.innerHTML = `<strong>${escapeHtml(k)}:</strong> ${escapeHtml(entry.meta[k])}`;
+          metaEl.appendChild(span);
+        }
+        container.appendChild(metaEl);
+      }
+      if (entry.params.length > 0) {
+        const table = document.createElement('table');
+        table.style.cssText = 'font-size:.75rem;width:100%;border-collapse:collapse;';
+        entry.params.forEach((row, i) => {
+          const tr = table.insertRow();
+          tr.style.background = i % 2 === 0 ? '#f7f8fa' : '#fff';
+          const td1 = tr.insertCell();
+          td1.style.cssText = 'padding:.18rem .5rem;font-weight:600;color:#444;white-space:nowrap;';
+          td1.textContent = row.param;
+          const td2 = tr.insertCell();
+          td2.style.cssText = 'padding:.18rem .5rem;color:#333;';
+          td2.textContent = row.values;
+        });
+        container.appendChild(table);
+      }
+    });
   }
 
   return { init };

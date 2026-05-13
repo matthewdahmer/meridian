@@ -24,6 +24,7 @@ meridian/
 ├── protractor/
 │   ├── index.html
 │   ├── app.js                  ← all logic, IIFE pattern
+│   ├── changelog.md            ← manually maintained dataset changelog (displayed in Changelog tab)
 │   └── vendor/                 ← bootstrap.min.css, bootstrap.bundle.min.js, d3.min.js
 ├── steady_states/
 │   ├── index.html
@@ -61,9 +62,10 @@ Four rendered outputs, all driven by the same condition selectors:
 
 1. **Configuration Selection card** — fixed 170px-wide left card with a "Configuration / Selection" card header, containing 16 dropdowns stacked vertically: Date, Chips, and 14 thermal limit selectors. Date/Chips → network fetch + full re-render. Any limit → re-filter in memory + re-render (no fetch).
 
-2. **Tabbed data graphic card** — right card with two Bootstrap tabs:
+2. **Tabbed data graphic card** — right card with three Bootstrap tabs:
    - **Protractor tab** — semicircular polar plot (135° arc, pitch 45–180°). One radial band per thermal model. Color coding: light red = limited dwell, dark red = active limiting constraint, light blue = offset, gray = neutral. HRC bands use half-width overlapping blue-over-red rendering.
    - **Line Plot tab** — "Composite Dwell Capability" line chart. Pitch 45–180° on x-axis, dwell duration in kiloseconds on y-axis. See Line Plot section below.
+   - **Changelog tab** — displays `protractor/changelog.md`, parsed and rendered as structured HTML. One entry per `## ` header: bold `**Key:** Value` lines become a metadata row; the markdown table becomes a two-column parameter grid. Fetched independently of scenario data at init time.
 
 3. **Configuration Legend card** — HTML card below the tabbed graphic card, to the right of the Configuration Selection card. Shows the current selected values (Date, Chips, all 14 thermal limits) as a 4-column grid. Previously this was drawn inside the SVG; it was split out into its own card. This card is hidden (`display:none`) until first render.
 
@@ -91,6 +93,9 @@ init()
   └── attach change listeners: date/chips → loadAndRender; all 14 limits → refilterAndRender
   └── attach tab-shown listener: tab-lineplot-btn → re-render lineplot at correct width
   └── attach resize handler (debounced 150ms, re-renders both protractor and lineplot)
+  └── fetch ./changelog.md (independent of data loading)
+        └── parseChangelog(text) → [{title, meta:{}, params:[{param,values}]}]
+        └── renderChangelogEntries(entries, #tab-changelog-content)
 
 refilterAndRender()
   └── getSelectedLimits() → Map<col, numericValue>  (reads all 14 selects)
@@ -393,6 +398,45 @@ If `msids` is empty or falsy, `renderNoData(container)` is called immediately an
 
 ---
 
+### Changelog tab (`protractor/changelog.md`)
+
+`changelog.md` is a manually maintained markdown file fetched at init time. It is independent of scenario data — it loads and renders even if data loading fails.
+
+**Format:** one entry per `## ` header line. Entries should be ordered newest-first (add at the top). Never delete old entries.
+
+```markdown
+## Entry Title
+
+**Generated:** YYYY-MM-DD
+**Models version:** chandra_models X.XX
+**MD5:** (hash)
+
+| Parameter | Available Values |
+|---|---|
+| Date | Jan 1 2026, Apr 1 2026, ... |
+| Chips | 1, 2, 3, 4, 5, 6 |
+| HRC-S CEA (°C) | -10, -20 |
+...
+```
+
+**`parseChangelog(text)` — parsing rules:**
+- Splits on `\n(?=## )` to isolate sections
+- Within each section, `**Key:** value` lines before any table row are collected as `entry.meta`
+- Table parsing uses a three-phase state machine: first `|` row = header (skipped), second = separator (skipped), subsequent = data rows → `entry.params[]`
+- A non-blank, non-`|` line after the table resets phase to 0, allowing multiple tables per entry (not currently used)
+
+**`renderChangelogEntries(entries, container)` — output structure:**
+- Entry title: dark-blue bold `div`, 0.9rem
+- Metadata: `flex` row of `<span>` elements at 0.75rem, `<strong>Key:</strong> value`
+- Params: `<table>` with alternating `#f7f8fa` / `#fff` row backgrounds, 0.75rem
+- Entries separated by `<hr>` with `border-color:#e5e7eb`
+
+**`escapeHtml(s)`** is used on all metadata key and value strings before inserting into `innerHTML`. Param values are set via `textContent` (no escaping needed).
+
+If the file is missing or the fetch fails, `#tab-changelog-content` shows "Changelog unavailable."
+
+---
+
 ### HTML structure (`protractor/index.html`)
 
 Fixed 260px dark sidebar + flex-grow `#main`.
@@ -410,9 +454,10 @@ Fixed 260px dark sidebar + flex-grow `#main`.
   - `flex:1` causes it to grow and fill the remaining vertical space in the right column after the Configuration Legend card takes its natural height. This makes the bottom of the Configuration Legend card align with the bottom of the Configuration/Selection card on the left. Both cards are in a `#content-area` flex row with `align-items:stretch`, so the right column already fills the left card's full height.
   - `#loading-state` — visible while fetching; hidden once `#chart-tabs` is shown
   - `#chart-tabs` — hidden until first render; shown by `refilterAndRender()`
-    - Bootstrap tab nav: "Protractor" (`#tab-protractor-btn`) | "Line Plot" (`#tab-lineplot-btn`)
+    - Bootstrap tab nav: "Protractor" (`#tab-protractor-btn`) | "Line Plot" (`#tab-lineplot-btn`) | "Changelog" (`#tab-changelog-btn`)
     - Tab pane `#tab-protractor` (default active): contains `#chart-container` (SVG rendered here)
     - Tab pane `#tab-lineplot`: contains `#lineplot-container` (wrapper div with SVG + legendDiv rendered here)
+    - Tab pane `#tab-changelog`: contains `#tab-changelog-content` (populated by `renderChangelogEntries()` from `changelog.md`)
 
   **Configuration Legend card** (`#legend-card`, `.card`, `display:none` until first render):
   - Card header: "Configuration" (`fw-semibold small`)

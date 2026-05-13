@@ -195,6 +195,11 @@
                       data-bs-toggle="tab" data-bs-target="#tab-lineplot"
                       type="button" role="tab">Line Plot</button>
             </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="tab-changelog-btn"
+                      data-bs-toggle="tab" data-bs-target="#tab-changelog"
+                      type="button" role="tab">Changelog</button>
+            </li>
           </ul>
           <div class="tab-content">
             <div class="tab-pane show active" id="tab-protractor" role="tabpanel">
@@ -202,6 +207,11 @@
             </div>
             <div class="tab-pane" id="tab-lineplot" role="tabpanel">
               <div id="lineplot-container"></div>
+            </div>
+            <div class="tab-pane" id="tab-changelog" role="tabpanel">
+              <div id="tab-changelog-content" style="padding:.75rem;">
+                <span style="color:#888;font-size:.85rem;">Loading&hellip;</span>
+              </div>
             </div>
           </div>
         </div>
