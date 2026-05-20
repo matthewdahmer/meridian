@@ -2,7 +2,7 @@
 
 Spacecraft thermal dwell envelope visualization tool for Chandra X-ray Observatory. Shows maximum allowed dwell time per thermal model/location as a function of pitch, under coupled thermal constraints.
 
-> **IMPORTANT**: Never read files under `./timbre_data_b073e82_3.73.1/` (including `.json` and `.gz` files). These are large raw scenario files. Use the documented data format descriptions in this file instead. The only exception is `./timbre_data_b073e82_3.73.1/manifest.json`, which may be read.
+> **IMPORTANT**: Never read files under any `./timbre_data_*/` directory (including `.json` and `.gz` files). These are large raw scenario files. Use the documented data format descriptions in this file instead. The only exception is each directory's `manifest.json`, which may be read.
 
 ## Target Project Layout
 
@@ -10,10 +10,17 @@ Spacecraft thermal dwell envelope visualization tool for Chandra X-ray Observato
 meridian/
 ├── CLAUDE.md
 ├── build.py                       ← assembles all apps into dist/
-├── timbre_data_b073e82_3.73.1/    ← protractor raw JSON scenario files (do not read into context)
+├── timbre_sources.json            ← lists all available timbre data directories
+├── timbre_data_7328a78_3.74.0/   ← protractor scenario data v3.74.0 (do not read individual files)
+│   ├── data.md                    ← exception: this file may be read
+│   └── manifest.json              ← exception: this file may be read
+├── timbre_data_b073e82_3.73.1/   ← protractor scenario data v3.73.1 (do not read individual files)
+│   ├── data.md                    ← exception: this file may be read
+│   └── manifest.json              ← exception: this file may be read
 ├── protractor/                    ← constraint pitch sensitivity app
 │   ├── index.html
 │   ├── app.js
+│   ├── changelog.md               ← manually maintained dataset changelog
 │   └── vendor/                    ← bootstrap.min.css, bootstrap.bundle.min.js, d3.min.js
 ├── steady_states/                 ← Xija model steady-state temperatures app
 │   ├── index.html
@@ -58,7 +65,8 @@ Full theme spec: see `web_theme.md`.
 | `pm1thv2t` | Thruster 2A |
 | `pm2thv1t` | Thruster 1B |
 | `1pdeaat` | ACIS Elec. (PSMC) |
-| `tpc_fsse` | TPC FSSE |
+| `tpc_fsse` | Fine Sun Sensor Elec. |
+| `tpcm_rw5` | Reaction Wheel #5 |
 | `pline03t` | Propulsion Line #3 |
 | `pline04t` | Propulsion Line #4 |
 | `2ceahvpt_s` | HRC-S CEA |
@@ -78,14 +86,14 @@ Pandas `orient='columns'` format: `{ column_name: { "row_index": value, ... }, .
 
 **Output columns** (dwell times, the main plotted quantities):
 `1dpamzt`, `1deamzt`, `fptemp_11`, `1pdeaat`, `aacccdpt`, `pm1thv2t`, `pm2thv1t`,
-`4rt700t`, `pftank2t`, `pline03t`, `pline04t`, `tpc_fsse`, `2ceahvpt_s`, `2ceahvpt_i`
+`4rt700t`, `pftank2t`, `pline03t`, `pline04t`, `tpc_fsse`, `tpcm_rw5`, `2ceahvpt_s`, `2ceahvpt_i`
 (legacy `2ceahvpt` is present but likely all null)
 
 **Constraint input columns** (limits): same names with `_limit` suffix
 
 **Metadata columns**: `pitch`, `date`, `datesecs`, `dwell_type`, `chips`, `roll`
 
-### Full scenario files (`timbre_data_b073e82_3.73.1/YYYY-DDD-00-00-00_<dwell_type>_chipsN.json`)
+### Full scenario files (`timbre_data_<hash>_<version>/YYYY-DDD-00-00-00_<dwell_type>_chipsN.json.gz`)
 
 Schema: `{ date, dwell_type, chips, columns: { col_name: [values...] } }` — arrays, not indexed objects.
 
@@ -97,6 +105,26 @@ Array columns live under `columns`: `pitch`, `datesecs`, `roll`, plus all output
 const text = rawText.replace(/\bNaN\b/g, 'null');
 const data = JSON.parse(text);
 ```
+
+### manifest.json (per data directory)
+
+Each timbre data directory contains a `manifest.json`:
+```json
+{
+  "dates": ["YYYY-DDD-00-00-00", ...],
+  "chips": [1, 2, 3, 4, 5, 6],
+  "limits": ["col_limit_name", ...]
+}
+```
+The `limits` array lists which limit columns are present in that dataset. The protractor app uses this to show/hide the corresponding configuration dropdowns.
+
+### timbre_sources.json (meridian root)
+
+```json
+["timbre_data_7328a78_3.74.0", "timbre_data_b073e82_3.73.1"]
+```
+
+Simple array of directory names. The protractor app fetches this at init to discover available data sources, sorts by version (descending) for the default, and populates the "Timbre Data Selection" dropdown.
 
 ### Pitch aggregation
 

@@ -22,6 +22,7 @@ const App = (() => {
     'pm1thv2t':   { name: 'Thruster 2A',             units: 'F' },
     '1pdeaat':    { name: 'ACIS Elec. (PSMC)',       units: 'C' },
     'tpc_fsse':   { name: 'Fine Sun Sensor Elec.',   units: 'F' },
+    'tpcm_rw5':   { name: 'Reaction Wheel #5',        units: 'F' },
   };
 
   // Derived lookup: msid → common name (used throughout rendering).
@@ -34,6 +35,7 @@ const App = (() => {
   const PREFERRED_ORDER = [
     '2ceahvpt_s', '2ceahvpt_i', 'pline03t', 'pline04t', '1dpamzt', '1deamzt',
     'fptemp_11', '4rt700t', 'tpc_fsse', 'aacccdpt', 'pftank2t', 'pm2thv1t', 'pm1thv2t', '1pdeaat',
+    'tpcm_rw5',
   ];
 
   const HRC_MSIDS = new Set(['2ceahvpt_s', '2ceahvpt_i']);
@@ -56,7 +58,7 @@ const App = (() => {
     '#4e79a7', '#f28e2b', '#e15759', '#76b7b2',
     '#59a14f', '#edc948', '#b07aa1', '#ff9da7',
     '#9c755f', '#bab0ac', '#d37295', '#499894',
-    '#f4e685', '#86bcb6',
+    '#f4e685', '#86bcb6', '#54a0c5',
   ];
   function msidColor(msid) {
     const idx = PREFERRED_ORDER.indexOf(msid);
@@ -77,12 +79,13 @@ const App = (() => {
     { col: '1deamzt_limit',    msid: '1deamzt'    },
     { col: 'fptemp_11_limit',  msid: 'fptemp_11'  },
     { col: '4rt700t_limit',    msid: '4rt700t'    },
-    { col: 'aacccdpt_limit',   msid: 'aacccdpt'   },
+    { col: 'aacccdpt_limit',   msid: 'aacccdpt',   defaultVal: -2.1 },
     { col: 'pftank2t_limit',   msid: 'pftank2t'   },
     { col: 'pm2thv1t_limit',   msid: 'pm2thv1t'   },
     { col: 'pm1thv2t_limit',   msid: 'pm1thv2t'   },
     { col: '1pdeaat_limit',    msid: '1pdeaat'    },
     { col: 'tpc_fsse_limit',   msid: 'tpc_fsse'   },
+    { col: 'tpcm_rw5_limit',   msid: 'tpcm_rw5'   },
   ];
 
   // ── Angle helpers ─────────────────────────────────────────────────────────
@@ -515,6 +518,8 @@ const App = (() => {
     items.push({ label: 'Date',  value: dateVal  ? doyLabel(dateVal) : '—' });
     items.push({ label: 'Chips', value: chipsVal || '—' });
     for (const { col, msid } of ALL_LIMITS) {
+      const div = document.querySelector(`[data-limit-col="${col}"]`);
+      if (div && div.style.display === 'none') continue;
       const v     = selectedLimits.get(col);
       const units = MSID_INFO[msid]?.units ?? 'C';
       items.push({ label: MSID_COMMON_NAMES[msid] || msid,
@@ -890,7 +895,7 @@ const App = (() => {
   // Populate all limit dropdowns from raw columns.
   // Preserves current selection if still valid in the new data; else picks middle value.
   function populateLimitDropdowns(rawCols) {
-    for (const { col, msid } of ALL_LIMITS) {
+    for (const { col, msid, defaultVal } of ALL_LIMITS) {
       const sel = document.getElementById(`sel-${col}`);
       if (!sel) continue;
       const units = MSID_INFO[msid]?.units ?? 'C';
@@ -904,7 +909,10 @@ const App = (() => {
         sel.appendChild(opt);
       }
       const stillValid = prevVal !== null && vals.some(v => Math.abs(v - prevVal) < 1e-9);
-      sel.value = stillValid ? String(prevVal) : String(vals[Math.floor(vals.length / 2)] ?? '');
+      const preferred  = defaultVal != null ? vals.find(v => Math.abs(v - defaultVal) < 1e-9) : undefined;
+      sel.value = stillValid  ? String(prevVal) :
+                  preferred != null ? String(preferred) :
+                  String(vals[Math.floor(vals.length / 2)] ?? '');
     }
   }
 
@@ -929,8 +937,8 @@ const App = (() => {
 
   // Fetch and decompress scenario files; return raw (un-aggregated) columns.
   async function loadRaw(date, chips) {
-    const limUrl = `../timbre_data_b073e82_3.73.1/${date}_limit_chips${chips}.json.gz`;
-    const offUrl = `../timbre_data_b073e82_3.73.1/${date}_offset_chips${chips}.json.gz`;
+    const limUrl = `../${_currentDataDir}/${date}_limit_chips${chips}.json.gz`;
+    const offUrl = `../${_currentDataDir}/${date}_offset_chips${chips}.json.gz`;
     const [limBuf, offBuf] = await Promise.all([fetchGz(limUrl), fetchGz(offUrl)]);
     const [rawLim, rawOff] = await Promise.all([
       decompressAndParse(limBuf),
@@ -945,10 +953,36 @@ const App = (() => {
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
-  let _loadedData      = null;  // { rawLim, rawOff, meta }
-  let _lastRenderArgs  = null;  // [container, lim, off, meta, conditions] for resize
-  let _lastLineplotArgs = null; // [container, lim, off, msids] for resize
+  let _loadedData       = null;  // { rawLim, rawOff, meta }
+  let _lastRenderArgs   = null;  // [container, lim, off, meta, conditions] for resize
+  let _lastLineplotArgs = null;  // [container, lim, off, msids] for resize
+  let _currentDataDir   = null;  // currently selected timbre data directory
   const hiddenMsids = new Set();
+
+  function parseSourceDirName(dir) {
+    const m = dir.match(/^timbre_data_([a-f0-9]{7})_(.+)$/);
+    if (!m) return { hash: dir, version: '0.0.0' };
+    return { hash: m[1], version: m[2] };
+  }
+
+  function compareVersions(a, b) {
+    const av = parseSourceDirName(a).version.split('.').map(Number);
+    const bv = parseSourceDirName(b).version.split('.').map(Number);
+    for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+      const d = (av[i] ?? 0) - (bv[i] ?? 0);
+      if (d !== 0) return d;
+    }
+    return 0;
+  }
+
+  function updateLimitSelectorVisibility(availableLimitCols) {
+    const available = new Set(availableLimitCols);
+    const bar = document.getElementById('condition-bar');
+    if (!bar) return;
+    for (const div of bar.querySelectorAll('[data-limit-col]')) {
+      div.style.display = available.has(div.dataset.limitCol) ? '' : 'none';
+    }
+  }
 
   // Re-filter in memory and re-render. No fetch. Called on limit dropdown changes.
   function refilterAndRender() {
@@ -997,32 +1031,73 @@ const App = (() => {
     }
   }
 
+  async function loadManifestAndSetup(dir) {
+    const manifest = await fetch(`../${dir}/manifest.json`).then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${dir}/manifest.json`);
+      return r.json();
+    });
+
+    const selDate  = document.getElementById('sel-date');
+    const selChips = document.getElementById('sel-chips');
+
+    selDate.innerHTML  = '';
+    selChips.innerHTML = '';
+
+    for (const d of manifest.dates) {
+      const opt = document.createElement('option');
+      opt.value = d;
+      opt.textContent = doyLabel(d);
+      selDate.appendChild(opt);
+    }
+    for (const c of manifest.chips) {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      selChips.appendChild(opt);
+    }
+    selDate.value  = manifest.dates[0];
+    selChips.value = manifest.chips.includes(4) ? 4 : manifest.chips[0];
+
+    updateLimitSelectorVisibility(manifest.limits ?? ALL_LIMITS.map(l => l.col));
+    await loadAndRender();
+  }
+
   async function init() {
     try {
-      const manifest = await fetch('../timbre_data_b073e82_3.73.1/manifest.json').then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}: manifest.json`);
+      const sources = await fetch('../timbre_sources.json').then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}: timbre_sources.json`);
         return r.json();
       });
+      sources.sort((a, b) => compareVersions(b, a));
+      _currentDataDir = sources[0];
+
+      const selSource = document.getElementById('sel-timbre-source');
+      for (const dir of sources) {
+        const { hash, version } = parseSourceDirName(dir);
+        const opt = document.createElement('option');
+        opt.value = dir;
+        opt.textContent = `${version} ${hash}`;
+        selSource.appendChild(opt);
+      }
+      selSource.value = _currentDataDir;
 
       const selDate  = document.getElementById('sel-date');
       const selChips = document.getElementById('sel-chips');
 
-      for (const d of manifest.dates) {
-        const opt = document.createElement('option');
-        opt.value = d;
-        opt.textContent = doyLabel(d);
-        selDate.appendChild(opt);
-      }
-      for (const c of manifest.chips) {
-        const opt = document.createElement('option');
-        opt.value = c;
-        opt.textContent = c;
-        selChips.appendChild(opt);
-      }
-      selDate.value  = manifest.dates[0];
-      selChips.value = manifest.chips.includes(4) ? 4 : manifest.chips[0];
-
-      await loadAndRender();
+      selSource.addEventListener('change', async () => {
+        _currentDataDir = selSource.value;
+        clearError();
+        selSource.disabled = true;
+        try {
+          await loadManifestAndSetup(_currentDataDir);
+        } catch (err) {
+          document.getElementById('loading-state').style.display = 'none';
+          showError(`Failed to load data source: ${err.message}`);
+          console.error(err);
+        } finally {
+          selSource.disabled = false;
+        }
+      });
 
       selDate.addEventListener('change',  () => loadAndRender());
       selChips.addEventListener('change', () => loadAndRender());
@@ -1045,6 +1120,8 @@ const App = (() => {
           if (_lastLineplotArgs) renderLineplot(..._lastLineplotArgs);
         }, 150);
       });
+
+      await loadManifestAndSetup(_currentDataDir);
 
     } catch (err) {
       document.getElementById('loading-state').style.display = 'none';

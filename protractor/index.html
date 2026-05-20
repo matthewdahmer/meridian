@@ -115,67 +115,79 @@
           <label class="form-label small text-muted mb-1" for="sel-chips">Chips</label>
           <select id="sel-chips" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="2ceahvpt_limit_s">
           <label class="form-label small text-muted mb-1" for="sel-2ceahvpt_limit_s">HRC-S CEA (°C)</label>
           <select id="sel-2ceahvpt_limit_s" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="2ceahvpt_limit_i">
           <label class="form-label small text-muted mb-1" for="sel-2ceahvpt_limit_i">HRC-I CEA (°C)</label>
           <select id="sel-2ceahvpt_limit_i" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="pline03t_limit">
           <label class="form-label small text-muted mb-1" for="sel-pline03t_limit">Prop. Line #3 (°F)</label>
           <select id="sel-pline03t_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="pline04t_limit">
           <label class="form-label small text-muted mb-1" for="sel-pline04t_limit">Prop. Line #4 (°F)</label>
           <select id="sel-pline04t_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="1dpamzt_limit">
           <label class="form-label small text-muted mb-1" for="sel-1dpamzt_limit">ACIS DPA (°C)</label>
           <select id="sel-1dpamzt_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="1deamzt_limit">
           <label class="form-label small text-muted mb-1" for="sel-1deamzt_limit">ACIS DEA (°C)</label>
           <select id="sel-1deamzt_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="fptemp_11_limit">
           <label class="form-label small text-muted mb-1" for="sel-fptemp_11_limit">ACIS FP (°C)</label>
           <select id="sel-fptemp_11_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="4rt700t_limit">
           <label class="form-label small text-muted mb-1" for="sel-4rt700t_limit">OBA Fwd Bulkhead (°F)</label>
           <select id="sel-4rt700t_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="aacccdpt_limit">
           <label class="form-label small text-muted mb-1" for="sel-aacccdpt_limit">ACA CCD (°C)</label>
           <select id="sel-aacccdpt_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="pftank2t_limit">
           <label class="form-label small text-muted mb-1" for="sel-pftank2t_limit">IPS Tank (°F)</label>
           <select id="sel-pftank2t_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="pm2thv1t_limit">
           <label class="form-label small text-muted mb-1" for="sel-pm2thv1t_limit">MUPS Thruster 1B (°F)</label>
           <select id="sel-pm2thv1t_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="pm1thv2t_limit">
           <label class="form-label small text-muted mb-1" for="sel-pm1thv2t_limit">MUPS Thruster 2A (°F)</label>
           <select id="sel-pm1thv2t_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-limit-col="1pdeaat_limit">
           <label class="form-label small text-muted mb-1" for="sel-1pdeaat_limit">ACIS PSMC (°C)</label>
           <select id="sel-1pdeaat_limit" class="form-select form-select-sm w-100"></select>
         </div>
-        <div>
+        <div class="mb-2" data-limit-col="tpc_fsse_limit">
           <label class="form-label small text-muted mb-1" for="sel-tpc_fsse_limit">Fine Sun Sensor Elec. (°F)</label>
           <select id="sel-tpc_fsse_limit" class="form-select form-select-sm w-100"></select>
+        </div>
+        <div data-limit-col="tpcm_rw5_limit">
+          <label class="form-label small text-muted mb-1" for="sel-tpcm_rw5_limit">Reaction Wheel #5 (°F)</label>
+          <select id="sel-tpcm_rw5_limit" class="form-select form-select-sm w-100"></select>
         </div>
       </div>
     </div>
 
     <!-- Right side: column of protractor + legend -->
     <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:.75rem;">
+
+      <!-- Timbre Data Selection -->
+      <div class="card" style="flex-shrink:0; padding:.375rem .75rem;">
+        <div style="display:flex; align-items:center; gap:.75rem;">
+          <span class="small fw-semibold" style="white-space:nowrap;">Timbre Data Selection</span>
+          <select id="sel-timbre-source" class="form-select form-select-sm" style="flex-shrink:0; width:auto;"></select>
+        </div>
+      </div>
 
       <!-- Top: data graphic (tabbed) -->
       <div id="protractor-panel" class="card" style="flex:1; min-height:0;">
