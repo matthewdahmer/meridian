@@ -1,6 +1,6 @@
 # Meridian – Development Handoff
 
-This document captures the current state of the application in enough detail to pick up development without reading individual data files. Read alongside `CLAUDE.md` (conventions, MSID names, data schemas), `data.md` (protractor data format detail), `README.md` (dev/build/deploy workflows), and `web_theme.md` (CSS conventions).
+This document captures the current state of the application in enough detail to pick up development without reading individual data files. Read alongside `CLAUDE.md` (conventions, MSID names, data schemas), `timbre_data_b073e82_3.73.1/data.md` (protractor data format detail), `README.md` (dev/build/deploy workflows), and `web_theme.md` (CSS conventions).
 
 ---
 
@@ -13,12 +13,12 @@ Meridian is a static multi-page site with three apps served from a shared dev ro
 ```
 meridian/
 ├── CLAUDE.md
-├── data.md
 ├── README.md
 ├── web_theme.md
 ├── handoff.md                  ← this file (Protractor + Steady States)
 ├── build.py                    ← assembles dist/ for deployment
-├── data/                       ← protractor scenario data (do NOT read individual files)
+├── timbre_data_b073e82_3.73.1/ ← protractor scenario data (do NOT read individual files)
+│   ├── data.md                 ← protractor data format detail
 │   ├── manifest.json           ← read freely; small index file
 │   └── YYYY-DDD-*_chipsN.json.gz   ← 60 compressed JSON files
 ├── protractor/
@@ -81,7 +81,7 @@ Four rendered outputs, all driven by the same condition selectors:
 
 ```
 init()
-  └── fetch ../data/manifest.json
+  └── fetch ../timbre_data_b073e82_3.73.1/manifest.json
   └── populate date + chips dropdowns
   └── loadAndRender()
         └── loadRaw(date, chips) → { rawLim, rawOff, meta }
@@ -575,7 +575,7 @@ python build.py [--output-dir DIR] [--force]
 
 Copies into `dist/` (or `DIR`):
 - `protractor/` → `dist/protractor/`
-- `data/` → `dist/data/`
+- `timbre_data_b073e82_3.73.1/` → `dist/timbre_data_b073e82_3.73.1/`
 - `steady_states/index.html`, `app.js`, `vendor/` → `dist/steady_states/`
 - `steady_states/data/` → `dist/steady_states/data/` (warns but succeeds if absent)
 - `model_dash/index.html`, `app.js`, `config.js`, `vendor/` → `dist/model_dash/`

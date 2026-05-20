@@ -2,7 +2,7 @@
 
 Spacecraft thermal dwell envelope visualization tool for Chandra X-ray Observatory. Shows maximum allowed dwell time per thermal model/location as a function of pitch, under coupled thermal constraints.
 
-> **IMPORTANT**: Never read files under `./data/` (including `.json` and `.gz` files). These are large raw scenario files. Use the documented data format descriptions in this file instead. The only exception is `./data/manifest.json`, which may be read.
+> **IMPORTANT**: Never read files under `./timbre_data_b073e82_3.73.1/` (including `.json` and `.gz` files). These are large raw scenario files. Use the documented data format descriptions in this file instead. The only exception is `./timbre_data_b073e82_3.73.1/manifest.json`, which may be read.
 
 ## Target Project Layout
 
@@ -10,7 +10,7 @@ Spacecraft thermal dwell envelope visualization tool for Chandra X-ray Observato
 meridian/
 ├── CLAUDE.md
 ├── build.py                       ← assembles all apps into dist/
-├── data/                          ← protractor raw JSON scenario files (do not read into context)
+├── timbre_data_b073e82_3.73.1/    ← protractor raw JSON scenario files (do not read into context)
 ├── protractor/                    ← constraint pitch sensitivity app
 │   ├── index.html
 │   ├── app.js
@@ -85,7 +85,7 @@ Pandas `orient='columns'` format: `{ column_name: { "row_index": value, ... }, .
 
 **Metadata columns**: `pitch`, `date`, `datesecs`, `dwell_type`, `chips`, `roll`
 
-### Full scenario files (`data/YYYY-DDD-00-00-00_<dwell_type>_chipsN.json`)
+### Full scenario files (`timbre_data_b073e82_3.73.1/YYYY-DDD-00-00-00_<dwell_type>_chipsN.json`)
 
 Schema: `{ date, dwell_type, chips, columns: { col_name: [values...] } }` — arrays, not indexed objects.
 
