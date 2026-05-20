@@ -1,0 +1,18 @@
+# Build output
+dist/
+
+# Timbre scenario data (large raw files, generated externally)
+timbre_data_*/
+
+# Generated app data
+steady_states/data/
+model_dash/data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+**/.DS_Store
