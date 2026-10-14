@@ -11,6 +11,8 @@ meridian/
 ├── CLAUDE.md
 ├── build.py                       ← assembles all apps into dist/
 ├── timbre_sources.json            ← lists all available timbre data directories
+├── timbre_data_f513ee0_3.76.0/   ← protractor scenario data v3.76.0 (do not read individual files)
+│   └── manifest.json              ← exception: this file may be read (no data.md or limits array)
 ├── timbre_data_7328a78_3.74.0/   ← protractor scenario data v3.74.0 (do not read individual files)
 │   ├── data.md                    ← exception: this file may be read
 │   └── manifest.json              ← exception: this file may be read
@@ -121,7 +123,7 @@ The `limits` array lists which limit columns are present in that dataset. The pr
 ### timbre_sources.json (meridian root)
 
 ```json
-["timbre_data_7328a78_3.74.0", "timbre_data_b073e82_3.73.1"]
+["timbre_data_f513ee0_3.76.0", "timbre_data_7328a78_3.74.0", "timbre_data_b073e82_3.73.1"]
 ```
 
 Simple array of directory names. The protractor app fetches this at init to discover available data sources, sorts by version (descending) for the default, and populates the "Timbre Data Selection" dropdown.

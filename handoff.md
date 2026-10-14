@@ -18,6 +18,9 @@ meridian/
 ├── handoff.md                       ← this file
 ├── build.py                         ← assembles dist/ for deployment
 ├── timbre_sources.json              ← lists all available timbre data directories
+├── timbre_data_f513ee0_3.76.0/      ← protractor scenario data v3.76.0 (do NOT read individual files)
+│   ├── manifest.json                ← dates (unsorted) and chips only; no limits array, no data.md
+│   └── YYYY-DDD-*_chipsN.json.gz    ← 204 compressed JSON scenario files (17 dates × 2 types × 6 chips)
 ├── timbre_data_7328a78_3.74.0/      ← protractor scenario data v3.74.0 (do NOT read individual files)
 │   ├── data.md                      ← protractor data format detail for this version
 │   ├── manifest.json                ← read freely; dates, chips, limits arrays
@@ -111,7 +114,7 @@ init()
               └── populateLimitDropdowns(rawLim)
                     └── each ALL_LIMITS entry: unique values sorted ascending; preserves
                          prior selection if still valid, else uses defaultVal if specified,
-                         else picks middle value. aacccdpt_limit has defaultVal: -2.1.
+                         else picks middle value. aacccdpt_limit has defaultVal: -1.5.
               └── hiddenMsids.clear()
               └── refilterAndRender()
   └── fetch ./changelog.md (independent of data loading)
@@ -157,7 +160,7 @@ const ALL_LIMITS = [
   { col: '1deamzt_limit',    msid: '1deamzt'    },
   { col: 'fptemp_11_limit',  msid: 'fptemp_11'  },
   { col: '4rt700t_limit',    msid: '4rt700t'    },
-  { col: 'aacccdpt_limit',   msid: 'aacccdpt',   defaultVal: -2.1 },
+  { col: 'aacccdpt_limit',   msid: 'aacccdpt',   defaultVal: -1.5 },
   { col: 'pftank2t_limit',   msid: 'pftank2t'   },
   { col: 'pm2thv1t_limit',   msid: 'pm2thv1t'   },
   { col: 'pm1thv2t_limit',   msid: 'pm1thv2t'   },
@@ -402,7 +405,7 @@ Each legend item (except Composite Min) is clickable. State is stored in module-
 ```markdown
 ## 3.74.0 (7328a78)
 
-**Generated:** YYYY-MM-DD
+**Promoted to flight:** YYYY-MM-DD
 **Models version:** 3.74.0
 **Hash:** 7328a78
 

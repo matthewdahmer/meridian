@@ -79,7 +79,7 @@ const App = (() => {
     { col: '1deamzt_limit',    msid: '1deamzt'    },
     { col: 'fptemp_11_limit',  msid: 'fptemp_11'  },
     { col: '4rt700t_limit',    msid: '4rt700t'    },
-    { col: 'aacccdpt_limit',   msid: 'aacccdpt',   defaultVal: -2.1 },
+    { col: 'aacccdpt_limit',   msid: 'aacccdpt',   defaultVal: -1.5 },
     { col: 'pftank2t_limit',   msid: 'pftank2t'   },
     { col: 'pm2thv1t_limit',   msid: 'pm2thv1t'   },
     { col: 'pm1thv2t_limit',   msid: 'pm1thv2t'   },
@@ -1043,7 +1043,9 @@ const App = (() => {
     selDate.innerHTML  = '';
     selChips.innerHTML = '';
 
-    for (const d of manifest.dates) {
+    // Manifest date order is not guaranteed (v3.76.0 is unsorted); YYYY-DDD sorts lexically.
+    const dates = [...manifest.dates].sort();
+    for (const d of dates) {
       const opt = document.createElement('option');
       opt.value = d;
       opt.textContent = doyLabel(d);
@@ -1055,7 +1057,7 @@ const App = (() => {
       opt.textContent = c;
       selChips.appendChild(opt);
     }
-    selDate.value  = manifest.dates[0];
+    selDate.value  = dates[0];
     selChips.value = manifest.chips.includes(4) ? 4 : manifest.chips[0];
 
     updateLimitSelectorVisibility(manifest.limits ?? ALL_LIMITS.map(l => l.col));
@@ -1166,7 +1168,7 @@ const App = (() => {
         const t = line.trim();
         if (tablePhase === 0) {
           const m = t.match(/^\*\*([^*]+)\*\*:?\s*(.*)/);
-          if (m && m[2]) { entry.meta[m[1].trim()] = m[2].trim(); continue; }
+          if (m && m[2]) { entry.meta[m[1].trim().replace(/:$/, '')] = m[2].trim(); continue; }
         }
         if (t.startsWith('|') && t.endsWith('|')) {
           const cells = t.split('|').slice(1, -1).map(c => c.trim());

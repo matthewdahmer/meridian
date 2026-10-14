@@ -16,6 +16,8 @@ All three apps share the same dark sidebar theme, Bootstrap 5, and D3 v7. All ve
 meridian/
 ├── build.py                         ← assembles dist/ for deployment
 ├── timbre_sources.json              ← lists all available timbre data directories
+├── timbre_data_f513ee0_3.76.0/      ← protractor scenario data v3.76.0 (do not read large files)
+│   └── manifest.json
 ├── timbre_data_7328a78_3.74.0/      ← protractor scenario data v3.74.0 (do not read large files)
 │   └── manifest.json                ← lists available dates, chips, and limit columns
 ├── timbre_data_b073e82_3.73.1/      ← protractor scenario data v3.73.1
