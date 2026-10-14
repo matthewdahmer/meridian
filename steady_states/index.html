@@ -77,6 +77,7 @@
     .tt-table { border-collapse: collapse; width: 100%; }
     .tt-table th, .tt-table td { padding: 1px 5px; }
     .tt-temp { text-align: right; font-family: monospace; }
+    .tt-nearest td { font-weight: 700; }
     .tt-swatch {
       display: inline-block;
       width: 8px; height: 8px;
@@ -154,10 +155,12 @@
     <!-- Provenance: always visible -->
     <div class="mb-3 small text-muted" id="meta-content"></div>
 
-    <!-- Controls row: FEPs/CCDs + special case + date selector -->
+    <!-- Controls row: FEPs/CCDs + special case + date selector + pitch resolution -->
     <div class="row g-2 align-items-end mb-3" id="controls-row">
       <div class="col-auto" id="config-controls-col"></div>
       <div class="col-auto" id="date-selector-col"></div>
+      <!-- Pitch resolution toggle (injected by JS; only for data finer than 5°) -->
+      <div class="col-auto" id="resolution-col"></div>
     </div>
 
     <!-- Loading spinner (shown while chart data is in flight) -->
@@ -210,6 +213,16 @@
 
   let currentNavId    = null;
   let currentMetadata = null;
+
+  // Pitch resolution the user last picked. 5° on page load; kept when
+  // switching models, and used wherever the data offers it (see
+  // App.resolveDisplayStep).
+  let preferredStep = 5;
+
+  // Paths of the chart JSON and table CSV currently shown, so a resolution
+  // change or window resize can re-render from the cache without fetching.
+  let currentChartPath = null;
+  let currentTablePath = null;
 
   // ── Error display ──────────────────────────────────────────────────────────
   function showError(msg) {
@@ -274,9 +287,12 @@
     document.getElementById('model-panel').style.display  = '';
     document.getElementById('config-controls-col').innerHTML = '';
     document.getElementById('date-selector-col').innerHTML   = '';
+    document.getElementById('resolution-col').innerHTML      = '';
     document.getElementById('meta-content').innerHTML        = '';
     document.getElementById('dl-dwell-csv').href  = '#';
     document.getElementById('dl-table-csv').href  = '#';
+    currentChartPath = null;
+    currentTablePath = null;
 
     setChartLoading(true);
     setTableLoading(true);
@@ -311,6 +327,14 @@
     const dates = App.getDatesForConfig(metadata, configId);
     document.getElementById('date-selector-col').innerHTML =
       App.buildDateSelectorHTML(dates);
+
+    // Pitch resolution toggle (empty for 5° data)
+    const resOptions = App.getResolutionOptions(App.getPitchStep(metadata));
+    document.getElementById('resolution-col').innerHTML =
+      App.buildResolutionToggleHTML(resOptions, App.resolveDisplayStep(resOptions, preferredStep));
+    document.querySelectorAll('input[name="ctrl-resolution"]').forEach(r => {
+      r.addEventListener('change', onResolutionChange);
+    });
 
     document.getElementById('meta-content').innerHTML = `
       <dl class="row mb-0 small">
@@ -359,6 +383,40 @@
     await loadChartAndTable(currentNavId, configId, dates[0]);
   }
 
+  // ── Pitch resolution change (re-render from cache; no fetch) ──────────────
+  function onResolutionChange(event) {
+    preferredStep = parseInt(event.target.value, 10);
+    renderCurrentChart();
+    renderCurrentTable();
+  }
+
+  // The step to display for the current model: the user's preference when the
+  // data offers it, else 5° (or the data's own step if it has no 5° subset).
+  function displayStep() {
+    const options = App.getResolutionOptions(App.getPitchStep(currentMetadata));
+    return App.resolveDisplayStep(options, preferredStep);
+  }
+
+  // Draw the current chart from the cache at the current display step.
+  function renderCurrentChart() {
+    const cached = currentChartPath && App._cache.charts[App.getChartCacheKey(currentChartPath)];
+    if (!cached) return;
+    App.renderDwellChart(
+      document.getElementById('chart-container'),
+      App.filterChartByStep(cached, displayStep())
+    );
+  }
+
+  // Draw the current summary table from the cache at the current display step.
+  function renderCurrentTable() {
+    const csvText = currentTablePath && App._cache.tables[currentTablePath];
+    if (csvText === undefined || csvText === null) return;
+    App.renderSummaryTable(
+      document.getElementById('table-container'),
+      App.filterTableCsvByStep(csvText, displayStep())
+    );
+  }
+
   // ── Date change ────────────────────────────────────────────────────────────
   async function onDateChange() {
     if (!currentMetadata) return;
@@ -396,29 +454,36 @@
     const cfgEntry = currentMetadata.configs[configId];
     document.getElementById('dl-table-csv').href = cfgEntry ? cfgEntry.table_csv : '#';
 
+    currentChartPath = fileRef.chart_json;
     setChartLoading(true);
     clearError();
     try {
-      const chartData = await App.loadChartData(fileRef.chart_json);
+      await App.loadChartData(fileRef.chart_json);
       setChartLoading(false);
-      App.renderDwellChart(document.getElementById('chart-container'), chartData);
+      renderCurrentChart();
     } catch (err) {
       setChartLoading(false);
       showError(`Chart load failed: ${err.message}`);
     }
 
+    // Summary table (non-blocking: a table failure doesn't hide the chart).
+    // Cached per path: every date of a config shares the same table.
+    currentTablePath = (cfgEntry && cfgEntry.table_csv) || null;
     setTableLoading(true);
     try {
-      if (cfgEntry && cfgEntry.table_csv) {
-        const resp    = await fetch(cfgEntry.table_csv);
-        const csvText = await resp.text();
+      if (currentTablePath) {
+        await App.loadTableCsv(currentTablePath);
         setTableLoading(false);
-        App.renderSummaryTable(document.getElementById('table-container'), csvText);
+        renderCurrentTable();
       } else {
         setTableLoading(false);
       }
-    } catch (_err) {
+    } catch (err) {
       setTableLoading(false);
+      const p = document.createElement('p');
+      p.className = 'text-muted small';
+      p.textContent = `Summary table could not be loaded: ${err.message}`;
+      document.getElementById('table-container').replaceChildren(p);
     }
   }
 
@@ -427,24 +492,9 @@
   window.addEventListener('resize', () => {
     clearTimeout(_resizeTimer);
     _resizeTimer = setTimeout(() => {
+      // Only re-render if a model is shown; renderCurrentChart uses the cache
       if (!currentMetadata || !currentNavId) return;
-      const manifest  = App._cache.manifest || [];
-      const navEntry  = manifest.find(e => e.nav_id === currentNavId)
-                     || { controls: currentMetadata.controls };
-      const fepsEl    = document.getElementById('ctrl-feps');
-      const specialEl = document.getElementById('ctrl-special');
-      const dateEl    = document.getElementById('ctrl-date');
-      const fepsVal   = fepsEl    ? parseInt(fepsEl.value, 10) : 1;
-      const isSpecial = specialEl ? specialEl.checked           : false;
-      const configId  = App.resolveConfigId(navEntry.controls, fepsVal, isSpecial);
-      const date      = dateEl ? dateEl.value : null;
-      if (!date) return;
-      const fileRef = App.getFileRef(currentMetadata, configId, date);
-      if (!fileRef) return;
-      const cached = App._cache.charts[App.getChartCacheKey(fileRef.chart_json)];
-      if (cached) {
-        App.renderDwellChart(document.getElementById('chart-container'), cached);
-      }
+      renderCurrentChart();
     }, 200);
   });
 

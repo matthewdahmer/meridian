@@ -35,7 +35,7 @@ meridian/
 │   ├── changelog.md                 ← manually maintained dataset changelog (displayed in Changelog tab)
 │   └── vendor/                      ← bootstrap.min.css, bootstrap.bundle.min.js, d3.min.js
 ├── steady_states/
-│   ├── index.html
+│   ├── index.html                   ← Meridian-specific; NOT a copy of the xija template (merge changes by hand)
 │   ├── app.js                       ← verbatim copy of ../xija_steady_states/templates/app.js
 │   ├── vendor/                      ← same vendor files as protractor/vendor/
 │   └── data/                        ← generated; do NOT read individual files (manifest.json OK)
@@ -499,7 +499,46 @@ Shows Xija thermal model steady-state temperatures as multi-line dwell curves an
 
 ### Architecture
 
-`steady_states/app.js` is a **verbatim copy** of `../xija_steady_states/templates/app.js`. It exposes a global `App` object with methods for loading manifest/metadata/chart data, rendering charts and tables, building controls HTML, and handling URL params.
+`steady_states/app.js` is a **verbatim copy** of `../xija_steady_states/templates/app.js`. It exposes a global `App` object with methods for loading manifest/metadata/chart data, rendering charts and tables, building controls HTML, pitch-resolution filtering, and handling URL params.
+
+`steady_states/index.html` is **not** a copy of the xija template. It has Meridian's own layout (sidebar with Pitch Sensitivity and Model Dashboard links, `app.js` loaded from the page directory rather than `vendor/`). Its boot script mirrors the template's boot script, so template changes to that script have to be merged in by hand.
+
+### Pitch resolution (5° / 1°)
+
+`xija_steady_states` writes `pitch_step` into each model's `metadata.json` (currently `1` for all models). When the data is finer than 5°, the page shows a "Pitch resolution" toggle in the controls row (`#resolution-col`) offering 5° (default) and 1°. Switching re-renders the chart and summary table from the in-memory cache via `App.filterChartByStep` / `App.filterTableCsvByStep`; nothing is refetched. The chosen step is kept when switching models. 5° data shows no toggle. In 1° mode, lines use a viridis gradient with a colour-bar legend, and the tooltip bolds the nearest curve (`.tt-nearest`).
+
+### Updating from xija_steady_states
+
+The steady-states site is developed in `../xija_steady_states/xija_steady_states/templates/`. Make feature changes there, then bring them into Meridian:
+
+1. **`app.js`** — copy verbatim:
+   ```bash
+   cp ../xija_steady_states/xija_steady_states/templates/app.js steady_states/app.js
+   ```
+2. **`index.html`** — never copy the template over Meridian's file. Diff the template since the last synced commit and apply the changes by hand (the diff won't `patch` cleanly because the layouts differ):
+   ```bash
+   git -C ../xija_steady_states diff <last-synced> HEAD -- xija_steady_states/templates/index.html
+   ```
+   **Last synced: `faa9a5c`** ("Generate 1° pitch data by default and add a 5°/1° toggle to the website", Oct 2026). Update this line after each sync.
+3. **Data** — regenerate **without `--setup`**:
+   ```bash
+   SKA=~/AXAFDATA/SKADATA python -m xija_steady_states --output-dir steady_states
+   ```
+
+> ⚠️ **Never run `xija_steady_states --setup` (or `--setup --force`) with `--output-dir steady_states`.** `--setup` builds a standalone xija site in the output directory: it overwrites Meridian's `index.html` with the generic template (losing the Meridian sidebar), writes `app.js` to `vendor/app.js` (so `build.py`, which copies `steady_states/app.js`, fails), replaces Bootstrap 5.3.3 with 5.3.0, and adds test-only `tests.html` and `vendor/qunit.*`. To recover: `git restore steady_states/index.html steady_states/app.js steady_states/vendor/`, delete `tests.html`, `vendor/app.js` and `vendor/qunit.*`, then redo step 1.
+
+Quick check that a sync is complete:
+```bash
+diff -q steady_states/app.js ../xija_steady_states/xija_steady_states/templates/app.js   # no output
+git status --short steady_states                                                         # no tests.html / vendor/app.js / vendor/qunit.*
+# App.* functions the template calls but Meridian's index.html doesn't (expect no output):
+comm -23 <(grep -o 'App\.[A-Za-z_]*' ../xija_steady_states/xija_steady_states/templates/index.html | sort -u) \
+         <(grep -o 'App\.[A-Za-z_]*' steady_states/index.html | sort -u)
+```
+
+### Browser caching after a deploy
+
+`app.js` is loaded without a version tag, and `python -m http.server` (and most static hosts) let browsers cache it heuristically. After an update, a browser can combine the **new `index.html` with a stale cached `app.js`**: the boot script then calls functions that don't exist yet (e.g. `App.getResolutionOptions`), throws, and the page never finishes loading. This happened during the Oct 2026 1° update. Fix for a viewer: hard refresh (Cmd+Shift+R). See Known Issues for the permanent fix.
 
 All data fetches are relative to the page URL — resolves correctly from `steady_states/`.
 
@@ -587,6 +626,10 @@ Two tables: "Limited Dwell Times (sec)" and "Offset Dwell Times (sec)".
 ### Model Dashboard: stale data causes missing cards on remote server (operational)
 
 If `model_dash/data/` on the remote server was generated by an older version of `chandra_model_eval`, the "Error Segments by Pitch Bin" and "Dwell Exploration" cards silently don't render for non-ACIS models (propulsion lines, thrusters, etc.), while rendering correctly for ACIS models — with no error message. Root cause: older tool versions added `pitch_analysis`/`dwell_table` to ACIS model files before adding support for all models. Files from the older generation are 3–4× smaller. Check `model_dash/data/run.log` (present in `data/`, not in the repo) to confirm which generation is deployed. Fix: regenerate with current tool and redeploy. See `model_dash/handoff.md §18` for detailed diagnostics.
+
+### Stale cached `app.js` after deploys (all apps; priority: medium)
+
+None of the apps version their script URLs (`<script src="app.js">`), so after a deploy a returning viewer's browser may run a cached old `app.js` against the new `index.html`. Symptom: the page loads its layout but never renders data, with a `TypeError: App.<fn> is not a function` (or similar) in the console. Confirmed on `steady_states/` during the 1° update. Workaround: hard refresh. Fix: add a version query string to local script/style URLs, e.g. `<script src="app.js?v=2026-10-14"></script>`, bumped whenever the file changes (or have `build.py` stamp a content hash into `dist/` copies so it can't be forgotten).
 
 ### Label placement on protractor (priority: medium)
 

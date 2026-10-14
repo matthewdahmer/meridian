@@ -6,7 +6,7 @@
  *
  * Schema contract (SCHEMA.md):
  *   manifest.json  → array of NavEntry {nav_id, display_name, msid, units, controls}
- *   metadata.json  → {nav_id, display_name, configs: {config_id: {dates, files, table_csv}}}
+ *   metadata.json  → {nav_id, display_name, pitch_step, configs: {config_id: {dates, files, table_csv}}}
  *   <date>.json    → {times, series[{pitch, temperatures}], meta{start_date,end_date,units,annotation}}
  *
  * All paths in metadata.json begin with "data/" and are passed directly to fetch().
@@ -19,7 +19,8 @@
   const _cache = {
     manifest: null,       // null | NavEntry[]
     metadata: {},         // { [nav_id]: MetadataObject }
-    charts: {}            // { [chart_json_path]: ChartDataObject }
+    charts: {},           // { [chart_json_path]: ChartDataObject }
+    tables: {}            // { [table_csv_path]: string }
   };
 
   // ─── Pure helper functions (testable) ─────────────────────────────────────
@@ -158,6 +159,110 @@
     return config.files[date];
   }
 
+  // ─── Pitch resolution (5° / 1° view) ──────────────────────────────────────
+  // The data may be generated at a fine pitch step (1° by default, SCHEMA.md
+  // §3.1). The page shows the 5° subset by default and offers a toggle to show
+  // every pitch. Filtering happens in the browser on cached data, so switching
+  // resolution never fetches anything.
+
+  /**
+   * Pitch step of a model's data, from metadata.json. Metadata written before
+   * pitch_step was recorded holds 5° data, so a missing key means 5.
+   *
+   * @param {Object|null} metadata
+   * @returns {number}
+   */
+  function getPitchStep(metadata) {
+    return (metadata && metadata.pitch_step) || 5;
+  }
+
+  /**
+   * Display resolutions available for data at `pitchStep`, default first.
+   * A 5° view is offered only when it is a subset of the data (5 is a
+   * multiple of the step); otherwise the data is shown as is.
+   *
+   * @param {number} pitchStep
+   * @returns {number[]} e.g. [5, 1] for 1° data, [5] for 5° data
+   */
+  function getResolutionOptions(pitchStep) {
+    if (pitchStep < 5 && 5 % pitchStep === 0) return [5, pitchStep];
+    return [pitchStep];
+  }
+
+  /**
+   * The step to display: the user's preference if available, else the default.
+   *
+   * @param {number[]} options    - from getResolutionOptions
+   * @param {number}   preferred  - the last step the user picked (5 on page load)
+   * @returns {number}
+   */
+  function resolveDisplayStep(options, preferred) {
+    return options.includes(preferred) ? preferred : options[0];
+  }
+
+  /**
+   * Build the HTML for the pitch resolution toggle (a Bootstrap button group
+   * of radio inputs). Returns '' when there is nothing to choose between.
+   *
+   * @param {number[]} options  - from getResolutionOptions
+   * @param {number}   selected - the step currently displayed
+   * @returns {string} HTML string
+   */
+  function buildResolutionToggleHTML(options, selected) {
+    if (!options || options.length < 2) return '';
+
+    let html = '<div>';
+    html += '<div class="form-label small text-muted mb-1" id="ctrl-resolution-label">Pitch resolution</div>';
+    html += '<div class="btn-group btn-group-sm" role="group" aria-label="Pitch resolution">';
+    options.forEach(step => {
+      const id = `ctrl-res-${step}`;
+      html += `<input type="radio" class="btn-check" name="ctrl-resolution" id="${id}" value="${step}" autocomplete="off"${step === selected ? ' checked' : ''}>`;
+      html += `<label class="btn btn-outline-primary" for="${id}">${step}°</label>`;
+    });
+    html += '</div></div>';
+    return html;
+  }
+
+  // A pitch is on the `step` grid when it is a multiple of `step` from 45°.
+  function onPitchGrid(pitch, step) {
+    return (pitch - 45) % step === 0;
+  }
+
+  /**
+   * Return chart data showing only the pitches on the `step` grid. The input
+   * (a cached object) is never modified; when every pitch is already on the
+   * grid it is returned as is.
+   *
+   * @param {Object} data - chart JSON (SCHEMA.md §4)
+   * @param {number} step - display step in degrees
+   * @returns {Object}
+   */
+  function filterChartByStep(data, step) {
+    if (data.series.every(s => onPitchGrid(s.pitch, step))) return data;
+    return Object.assign({}, data, {
+      series: data.series.filter(s => onPitchGrid(s.pitch, step))
+    });
+  }
+
+  /**
+   * Return summary-table CSV text keeping the header and the rows whose pitch
+   * (first column) is on the `step` grid. Unchanged text when nothing is
+   * dropped.
+   *
+   * @param {string} csvText
+   * @param {number} step
+   * @returns {string}
+   */
+  function filterTableCsvByStep(csvText, step) {
+    const lines = csvText.split('\n');
+    const kept  = lines.filter((line, i) => {
+      if (i === 0 || line.trim() === '') return true;
+      const pitch = parseInt(line.split(',')[0], 10);
+      return !isFinite(pitch) || onPitchGrid(pitch, step);
+    });
+    return kept.length === lines.length ? csvText : kept.join('\n');
+  }
+
   // ─── Fetch helpers ────────────────────────────────────────────────────────
 
   async function fetchJSON(path) {
@@ -195,6 +300,13 @@
     return _cache.charts[key];
   }
 
+  // The summary table is one file per config, shared by all its dates.
+  async function loadTableCsv(tableCsvPath) {
+    if (tableCsvPath in _cache.tables) return _cache.tables[tableCsvPath];
+    _cache.tables[tableCsvPath] = await fetchText(tableCsvPath);
+    return _cache.tables[tableCsvPath];
+  }
+
   // ─── D3 dwell chart renderer ──────────────────────────────────────────────
 
   /**
@@ -202,15 +314,23 @@
    *
    * Data schema (SCHEMA.md §4):
    *   data.times                   – shared x-axis, kiloseconds (ks)
-   *   data.series[i].pitch         – pitch angle (45–180°, 28 entries)
+   *   data.series[i].pitch         – pitch angle, 45–180° ascending at the run's
+   *                                  pitch step (28 entries at the default 5°)
    *   data.series[i].temperatures  – y-values, same length as times
    *   data.meta.units              – "Celsius" or "Fahrenheit" (y-axis label)
    *   data.meta.annotation         – chart subtitle string
    *
-   * Color mapping: d3.interpolateTurbo over pitch 45–180° gives a wide,
-   * perceptually smooth rainbow that makes it easy to distinguish all 28 lines.
-   * The same scale is used for every render so colors are consistent across
-   * model switches.
+   * Color mapping depends on the pitch step, read from the data (gap between
+   * the first two pitches):
+   *   - 5° or coarser (≤ 28 curves): categorical d3.schemeCategory10, indexed
+   *     by curve position and cycling every 10, so adjacent lines always
+   *     differ. Legend: one swatch per pitch.
+   *   - Finer than 5° (e.g. 1°, 136 curves): sequential viridis gradient over
+   *     45–180°, so color encodes pitch. Legend: a color bar labelled every
+   *     15°. The tooltip lists the 5° pitches plus the curve nearest the
+   *     cursor (bold), instead of every curve.
+   * Either way the mapping depends only on the pitches in the data, so colors
+   * are consistent across renders and model switches.
    *
    * @param {HTMLElement} container - wrapping div; SVG fills container.clientWidth
    * @param {Object}      data      - parsed chart JSON matching schema above
@@ -249,8 +369,18 @@
       .domain([yMin - yPad, yMax + yPad])
       .range([h, 0]);
 
-    // color: categorical, cycling every 10 pitches for visual distinction
-    const pitchColor = pitch => d3.schemeCategory10[Math.round((pitch - 45) / 5) % 10];
+    // color: categorical by curve position (cycling every 10) at 5° or coarser;
+    // a viridis gradient over 45–180° for finer steps, where 10 cycling colors
+    // would repeat every few degrees. Viridis stops at 0.9: its last tenth is
+    // too pale to see on a white background.
+    const pitches   = data.series.map(s => s.pitch);
+    const pitchStep = pitches.length > 1 ? pitches[1] - pitches[0] : 5;
+    const finePitch = pitchStep < 5;
+    const pitchIndex = new Map(pitches.map((p, i) => [p, i]));
+    const viridisT  = pitch => 0.9 * (pitch - 45) / 135;
+    const pitchColor = finePitch
+      ? pitch => d3.interpolateViridis(viridisT(pitch))
+      : pitch => d3.schemeCategory10[pitchIndex.get(pitch) % 10];
 
     // ── Grid lines ───────────────────────────────────────────────────────────
     g.append('g')
@@ -278,7 +408,7 @@
         .datum(series.temperatures)
         .attr('fill',         'none')
         .attr('stroke',       pitchColor(series.pitch))
-        .attr('stroke-width', 1.5)
+        .attr('stroke-width', finePitch ? 1 : 1.5)
         .attr('opacity',      0.85)
         .attr('class',        'pitch-line')
         .attr('data-pitch',   series.pitch)
@@ -373,11 +503,19 @@
           .attr('x1', xScale(t)).attr('x2', xScale(t))
           .style('display', null);
 
-        // Build compact tooltip rows — one per pitch angle
-        const rows = data.series.map(s => {
+        // Build compact tooltip rows — one per pitch angle. For fine steps,
+        // only the 5° pitches plus the curve nearest the cursor (in bold).
+        let shown   = data.series;
+        let nearest = null;
+        if (finePitch) {
+          const yVal = yScale.invert(my);
+          nearest = d3.least(data.series, s => Math.abs(s.temperatures[idx] - yVal)).pitch;
+          shown = data.series.filter(s => (s.pitch - 45) % 5 === 0 || s.pitch === nearest);
+        }
+        const rows = shown.map(s => {
           const temp  = s.temperatures[idx].toFixed(2);
           const color = pitchColor(s.pitch);
-          return `<tr>
+          return `<tr${s.pitch === nearest ? ' class="tt-nearest"' : ''}>
             <td><span class="tt-swatch" style="background:${color}"></span>${s.pitch}°</td>
             <td class="tt-temp">${temp}</td>
           </tr>`;
@@ -411,40 +549,94 @@
         tooltip.style('display', 'none');
       });
 
-    // ── Pitch color legend (categorical swatches) ─────────────────────────
-    // 28 pitches at 45–180° in 5° steps; single column at 9px font
-    const pitches = d3.range(45, 185, 5);   // [45, 50, …, 180]
-    const swSize  = 8;    // swatch width & height in px
-    const rowH    = 14;   // row pitch (px)
-    const nRows   = 28;   // single column — all pitches
-    const legX    = w + 10;
-    const legH    = pitches.length * rowH;  // 28 × 14 = 392 px
+    // ── Pitch color legend ────────────────────────────────────────────────
+    const legX      = w + 10;
     const headerGap = 10;   // padding between title and first row
-    const legY      = (h - legH) / 2 + headerGap;
 
-    // "Pitch°" header
-    g.append('text')
-      .attr('x', legX + 20).attr('y', legY - 12)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', '14px').attr('fill', '#555')
-      .text('Pitch°');
+    if (finePitch) {
+      drawColorBar();
+    } else {
+      drawSwatches();
+    }
 
-    pitches.forEach((pitch, i) => {
-      const row = i;
-      const px  = legX;
-      const py  = legY + row * rowH;
+    // Categorical swatches: one row per pitch in the data, single column at
+    // 9px font (28 rows × 14 px = 392 px at the default 5° step).
+    function drawSwatches() {
+      const swSize = 8;    // swatch width & height in px
+      const rowH   = 14;   // row pitch (px)
+      const legH   = pitches.length * rowH;
+      const legY   = (h - legH) / 2 + headerGap;
 
-      g.append('rect')
-        .attr('x', px).attr('y', py - swSize + 1)
-        .attr('width', swSize).attr('height', swSize)
-        .attr('fill', pitchColor(pitch));
+      // "Pitch°" header
+      g.append('text')
+        .attr('x', legX + 20).attr('y', legY - 12)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', '14px').attr('fill', '#555')
+        .text('Pitch°');
+
+      pitches.forEach((pitch, i) => {
+        const row = i;
+        const px  = legX;
+        const py  = legY + row * rowH;
+
+        g.append('rect')
+          .attr('x', px).attr('y', py - swSize + 1)
+          .attr('width', swSize).attr('height', swSize)
+          .attr('fill', pitchColor(pitch));
+
+        g.append('text')
+          .attr('x', px + swSize + 3).attr('y', py)
+          .attr('font-size', '9px').attr('fill', '#444')
+          .text(`${pitch}°`);
+      });
+    }
+
+    // Continuous color bar for fine steps: 45° at the top (matching the
+    // swatch order), labelled every 15°. Same height as the 5° swatch legend.
+    function drawColorBar() {
+      const barW = 12;
+      const barH = 392;
+      const barY = (h - barH) / 2 + headerGap;
+      const gradId = `pitch-gradient-${++colorBarCount}`;
+
+      const grad = svg.append('defs').append('linearGradient')
+        .attr('id', gradId)
+        .attr('x1', 0).attr('y1', 0).attr('x2', 0).attr('y2', 1);
+      d3.range(0, 1.0001, 0.1).forEach(f => {
+        grad.append('stop')
+          .attr('offset', f)
+          .attr('stop-color', pitchColor(45 + f * 135));
+      });
 
       g.append('text')
-        .attr('x', px + swSize + 3).attr('y', py)
-        .attr('font-size', '9px').attr('fill', '#444')
-        .text(`${pitch}°`);
-    });
+        .attr('x', legX + 20).attr('y', barY - 12)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', '14px').attr('fill', '#555')
+        .text('Pitch°');
+
+      const bar = g.append('g').attr('class', 'pitch-colorbar');
+      bar.append('rect')
+        .attr('x', legX).attr('y', barY)
+        .attr('width', barW).attr('height', barH)
+        .attr('fill', `url(#${gradId})`);
+
+      d3.range(45, 181, 15).forEach(pitch => {
+        const py = barY + (pitch - 45) / 135 * barH;
+        bar.append('line')
+          .attr('x1', legX + barW).attr('x2', legX + barW + 3)
+          .attr('y1', py).attr('y2', py)
+          .attr('stroke', '#444');
+        bar.append('text')
+          .attr('x', legX + barW + 5).attr('y', py)
+          .attr('dominant-baseline', 'middle')
+          .attr('font-size', '9px').attr('fill', '#444')
+          .text(`${pitch}°`);
+      });
+    }
   }
+
+  // Gradient ids must be unique in the document; charts can be re-rendered.
+  let colorBarCount = 0;
 
   // ─── Summary table renderer ───────────────────────────────────────────────
 
@@ -465,9 +657,16 @@
     }
 
     const headers = lines[0].split(',').map(h => h.trim());
-    const parts   = ['<div class="table-responsive"><table class="table table-sm table-striped table-hover small mb-0">'];
+    // Finer pitch steps give more than 28 rows (136 at 1°): cap the height
+    // and keep the header row visible while scrolling.
+    const tall    = lines.length - 1 > 28;
+    const parts   = [tall
+      ? '<div class="table-responsive summary-scroll" style="max-height:600px;overflow-y:auto"><table class="table table-sm table-striped table-hover small mb-0">'
+      : '<div class="table-responsive"><table class="table table-sm table-striped table-hover small mb-0">'];
 
-    parts.push('<thead class="table-dark"><tr>');
+    parts.push(tall
+      ? '<thead class="table-dark" style="position:sticky;top:0;z-index:1"><tr>'
+      : '<thead class="table-dark"><tr>');
     headers.forEach(h => parts.push(`<th scope="col">${h}</th>`));
     parts.push('</tr></thead><tbody>');
 
@@ -500,12 +699,19 @@
     getChartCacheKey,
     getDatesForConfig,
     getFileRef,
+    getPitchStep,
+    getResolutionOptions,
+    resolveDisplayStep,
+    buildResolutionToggleHTML,
+    filterChartByStep,
+    filterTableCsvByStep,
     // Cache (exposed so tests can inspect and reset it)
     _cache,
     // Async data loaders
     loadManifest,
     loadMetadata,
     loadChartData,
+    loadTableCsv,
     // Renderers
     renderDwellChart,
     renderSummaryTable,
