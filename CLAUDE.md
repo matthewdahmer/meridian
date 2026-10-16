@@ -2,7 +2,7 @@
 
 Spacecraft thermal dwell envelope visualization tool for Chandra X-ray Observatory. Shows maximum allowed dwell time per thermal model/location as a function of pitch, under coupled thermal constraints.
 
-> **IMPORTANT**: Never read files under any `./timbre_data_*/` directory (including `.json` and `.gz` files). These are large raw scenario files. Use the documented data format descriptions in this file instead. The only exception is each directory's `manifest.json`, which may be read.
+> **IMPORTANT**: Never read files under any `protractor/data/timbre_data_*/` directory (including `.json` and `.gz` files). These are large raw scenario files. Use the documented data format descriptions in this file instead. The only exception is each directory's `manifest.json`, which may be read.
 
 ## Target Project Layout
 
@@ -10,20 +10,21 @@ Spacecraft thermal dwell envelope visualization tool for Chandra X-ray Observato
 meridian/
 ├── CLAUDE.md
 ├── build.py                       ← assembles all apps into dist/
-├── timbre_sources.json            ← lists all available timbre data directories
-├── timbre_data_f513ee0_3.76.0/   ← protractor scenario data v3.76.0 (do not read individual files)
-│   └── manifest.json              ← exception: this file may be read (no data.md or limits array)
-├── timbre_data_7328a78_3.74.0/   ← protractor scenario data v3.74.0 (do not read individual files)
-│   ├── data.md                    ← exception: this file may be read
-│   └── manifest.json              ← exception: this file may be read
-├── timbre_data_b073e82_3.73.1/   ← protractor scenario data v3.73.1 (do not read individual files)
-│   ├── data.md                    ← exception: this file may be read
-│   └── manifest.json              ← exception: this file may be read
 ├── protractor/                    ← constraint pitch sensitivity app
 │   ├── index.html
 │   ├── app.js
 │   ├── changelog.md               ← manually maintained dataset changelog
-│   └── vendor/                    ← bootstrap.min.css, bootstrap.bundle.min.js, d3.min.js
+│   ├── vendor/                    ← bootstrap.min.css, bootstrap.bundle.min.js, d3.min.js
+│   └── data/
+│       ├── timbre_sources.json    ← lists all available timbre data directories (tracked in git)
+│       ├── timbre_data_f513ee0_3.76.0/   ← scenario data v3.76.0 (gitignored; do not read individual files)
+│       │   └── manifest.json      ← exception: this file may be read (no data.md or limits array)
+│       ├── timbre_data_7328a78_3.74.0/   ← scenario data v3.74.0 (gitignored; do not read individual files)
+│       │   ├── data.md            ← exception: this file may be read
+│       │   └── manifest.json      ← exception: this file may be read
+│       └── timbre_data_b073e82_3.73.1/   ← scenario data v3.73.1 (gitignored; do not read individual files)
+│           ├── data.md            ← exception: this file may be read
+│           └── manifest.json      ← exception: this file may be read
 ├── steady_states/                 ← Xija model steady-state temperatures app
 │   ├── index.html
 │   ├── app.js
@@ -95,7 +96,7 @@ Pandas `orient='columns'` format: `{ column_name: { "row_index": value, ... }, .
 
 **Metadata columns**: `pitch`, `date`, `datesecs`, `dwell_type`, `chips`, `roll`
 
-### Full scenario files (`timbre_data_<hash>_<version>/YYYY-DDD-00-00-00_<dwell_type>_chipsN.json.gz`)
+### Full scenario files (`protractor/data/timbre_data_<hash>_<version>/YYYY-DDD-00-00-00_<dwell_type>_chipsN.json.gz`)
 
 Schema: `{ date, dwell_type, chips, columns: { col_name: [values...] } }` — arrays, not indexed objects.
 
@@ -120,7 +121,7 @@ Each timbre data directory contains a `manifest.json`:
 ```
 The `limits` array lists which limit columns are present in that dataset. The protractor app uses this to show/hide the corresponding configuration dropdowns.
 
-### timbre_sources.json (meridian root)
+### timbre_sources.json (`protractor/data/`)
 
 ```json
 ["timbre_data_f513ee0_3.76.0", "timbre_data_7328a78_3.74.0", "timbre_data_b073e82_3.73.1"]

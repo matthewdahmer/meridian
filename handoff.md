@@ -1,6 +1,6 @@
 # Meridian – Development Handoff
 
-This document captures the current state of the application in enough detail to pick up development without reading individual data files. Read alongside `CLAUDE.md` (conventions, MSID names, data schemas), each `timbre_data_*/data.md` (protractor data format detail per version), `README.md` (dev/build/deploy workflows), and `web_theme.md` (CSS conventions).
+This document captures the current state of the application in enough detail to pick up development without reading individual data files. Read alongside `CLAUDE.md` (conventions, MSID names, data schemas), each `protractor/data/timbre_data_*/data.md` (protractor data format detail per version), `README.md` (dev/build/deploy workflows), and `web_theme.md` (CSS conventions).
 
 ---
 
@@ -17,23 +17,24 @@ meridian/
 ├── web_theme.md
 ├── handoff.md                       ← this file
 ├── build.py                         ← assembles dist/ for deployment
-├── timbre_sources.json              ← lists all available timbre data directories
-├── timbre_data_f513ee0_3.76.0/      ← protractor scenario data v3.76.0 (do NOT read individual files)
-│   ├── manifest.json                ← dates (unsorted) and chips only; no limits array, no data.md
-│   └── YYYY-DDD-*_chipsN.json.gz    ← 204 compressed JSON scenario files (17 dates × 2 types × 6 chips)
-├── timbre_data_7328a78_3.74.0/      ← protractor scenario data v3.74.0 (do NOT read individual files)
-│   ├── data.md                      ← protractor data format detail for this version
-│   ├── manifest.json                ← read freely; dates, chips, limits arrays
-│   └── YYYY-DDD-*_chipsN.json.gz    ← 48 compressed JSON scenario files (4 dates × 2 types × 6 chips)
-├── timbre_data_b073e82_3.73.1/      ← protractor scenario data v3.73.1 (do NOT read individual files)
-│   ├── data.md                      ← protractor data format detail for this version
-│   ├── manifest.json                ← read freely; dates, chips, limits arrays
-│   └── YYYY-DDD-*_chipsN.json.gz    ← 60 compressed JSON scenario files (5 dates × 2 types × 6 chips)
 ├── protractor/
 │   ├── index.html
 │   ├── app.js                       ← all logic, IIFE pattern
 │   ├── changelog.md                 ← manually maintained dataset changelog (displayed in Changelog tab)
-│   └── vendor/                      ← bootstrap.min.css, bootstrap.bundle.min.js, d3.min.js
+│   ├── vendor/                      ← bootstrap.min.css, bootstrap.bundle.min.js, d3.min.js
+│   └── data/                        ← all protractor data (same pattern as steady_states/data/ and model_dash/data/)
+│       ├── timbre_sources.json      ← lists available timbre data directories (tracked in git)
+│       ├── timbre_data_f513ee0_3.76.0/   ← scenario data v3.76.0 (gitignored; do NOT read individual files)
+│       │   ├── manifest.json        ← dates (unsorted) and chips only; no limits array, no data.md
+│       │   └── YYYY-DDD-*_chipsN.json.gz ← 204 compressed JSON scenario files (17 dates × 2 types × 6 chips)
+│       ├── timbre_data_7328a78_3.74.0/   ← scenario data v3.74.0 (gitignored; do NOT read individual files)
+│       │   ├── data.md              ← protractor data format detail for this version
+│       │   ├── manifest.json        ← read freely; dates, chips, limits arrays
+│       │   └── YYYY-DDD-*_chipsN.json.gz ← 48 compressed JSON scenario files (4 dates × 2 types × 6 chips)
+│       └── timbre_data_b073e82_3.73.1/   ← scenario data v3.73.1 (gitignored; do NOT read individual files)
+│           ├── data.md              ← protractor data format detail for this version
+│           ├── manifest.json        ← read freely; dates, chips, limits arrays
+│           └── YYYY-DDD-*_chipsN.json.gz ← 60 compressed JSON scenario files (5 dates × 2 types × 6 chips)
 ├── steady_states/
 │   ├── index.html                   ← Meridian-specific; NOT a copy of the xija template (merge changes by hand)
 │   ├── app.js                       ← verbatim copy of ../xija_steady_states/templates/app.js
@@ -91,7 +92,7 @@ Four rendered outputs, all driven by the same condition selectors:
 
 ```
 init()
-  └── fetch ../timbre_sources.json → [dir, dir, ...]
+  └── fetch data/timbre_sources.json → [dir, dir, ...]
   └── sort by version (semver, descending); set _currentDataDir = sources[0]
   └── populate #sel-timbre-source dropdown
   └── attach selSource.change → update _currentDataDir + loadManifestAndSetup()
@@ -101,14 +102,14 @@ init()
   └── attach tab-shown listener: tab-lineplot-btn → re-render lineplot at correct width
   └── attach resize handler (debounced 150ms, re-renders both protractor and lineplot)
   └── loadManifestAndSetup(_currentDataDir)
-        └── fetch ../${_currentDataDir}/manifest.json
+        └── fetch data/${_currentDataDir}/manifest.json
         └── repopulate selDate + selChips dropdowns (innerHTML = '' first)
         └── updateLimitSelectorVisibility(manifest.limits)
               └── each [data-limit-col] div: display='' if col in limits, else display='none'
         └── loadAndRender()
               └── loadRaw(date, chips) → { rawLim, rawOff, meta }
                     └── fetchGz() — fetch + LRU-cache compressed ArrayBuffers
-                         URL pattern: ../${_currentDataDir}/${date}_${type}_chips${chips}.json.gz
+                         URL pattern: data/${_currentDataDir}/${date}_${type}_chips${chips}.json.gz
                     └── decompressAndParse() — DecompressionStream → NaN→null → JSON.parse
                     └── parseScenarioColumns()
               └── populateLimitDropdowns(rawLim)
@@ -575,15 +576,15 @@ python build.py [--output-dir DIR] [--force]
 ```
 
 Copies into `dist/` (or `DIR`):
-- `protractor/` → `dist/protractor/`
-- `timbre_sources.json` → `dist/timbre_sources.json`
-- All `timbre_data_*/` directories (via glob) → `dist/timbre_data_*/`
+- `protractor/` → `dist/protractor/` (whole directory, including `protractor/data/timbre_sources.json` and every `protractor/data/timbre_data_*/`)
 - `steady_states/index.html`, `app.js`, `vendor/` → `dist/steady_states/`
 - `steady_states/data/` → `dist/steady_states/data/` (warns but succeeds if absent)
 - `model_dash/index.html`, `app.js`, `config.js`, `vendor/` → `dist/model_dash/`
 - `model_dash/data/` → `dist/model_dash/data/` (warns but succeeds if absent)
 
-Adding a new timbre data directory requires no changes to `build.py` — it picks up all `timbre_data_*/` directories automatically. The directory must be added to `timbre_sources.json` to be discovered by the app.
+Adding a new timbre data directory requires no changes to `build.py`: put it in `protractor/data/` and it is copied with the rest of `protractor/`. The directory must also be added to `protractor/data/timbre_sources.json` to be discovered by the app.
+
+**Why protractor data lives in `protractor/data/`:** until Oct 2026 the `timbre_data_*/` directories and `timbre_sources.json` sat at the Meridian root and the app fetched them via `../`. They were moved so all three apps follow the same pattern (each app owns its `data/` subdirectory and fetches with relative `data/...` URLs). Don't move them back to the root; the app's fetch paths, `build.py`, and `.gitignore` all assume `protractor/data/`.
 
 Vendor files are per-app — no shared copy. ~500 KB duplication is acceptable and avoids changing existing `vendor/` paths.
 
@@ -626,6 +627,14 @@ Two tables: "Limited Dwell Times (sec)" and "Offset Dwell Times (sec)".
 ### Model Dashboard: stale data causes missing cards on remote server (operational)
 
 If `model_dash/data/` on the remote server was generated by an older version of `chandra_model_eval`, the "Error Segments by Pitch Bin" and "Dwell Exploration" cards silently don't render for non-ACIS models (propulsion lines, thrusters, etc.), while rendering correctly for ACIS models — with no error message. Root cause: older tool versions added `pitch_analysis`/`dwell_table` to ACIS model files before adding support for all models. Files from the older generation are 3–4× smaller. Check `model_dash/data/run.log` (present in `data/`, not in the repo) to confirm which generation is deployed. Fix: regenerate with current tool and redeploy. See `model_dash/handoff.md §18` for detailed diagnostics.
+
+### Orphaned root-level timbre data on servers deployed before Oct 2026 (priority: low)
+
+Deploys made before the move to `protractor/data/` put `timbre_data_*/` and `timbre_sources.json` at the webroot root. The current app no longer reads them, and syncing a new build without `--delete` leaves them in place. They're harmless but waste space and stay publicly browsable. Fix: after confirming the new build works (protractor loads data from `protractor/data/...`), delete the root-level `timbre_data_*/` and `timbre_sources.json` on the server by hand.
+
+### Leftover `protractor/timbre_log/` on servers deployed before Oct 2026 (priority: low)
+
+`protractor/timbre_log/` was a local scratch folder (clones of `sot/timbre` and `sot/chandra_models`, including their `.git/` directories). Older builds copied it into `dist/protractor/timbre_log/` because `build.py` copied all of `protractor/`. It has been deleted locally, and `build.py` now excludes `timbre_log` from the protractor copy, but a webroot deployed from an older build may still contain it. Fix: delete `protractor/timbre_log/` from the server by hand.
 
 ### Stale cached `app.js` after deploys (all apps; priority: medium)
 

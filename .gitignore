@@ -2,7 +2,7 @@
 dist/
 
 # Timbre scenario data (large raw files, generated externally)
-timbre_data_*/
+protractor/data/timbre_data_*/
 
 # Generated app data
 steady_states/data/

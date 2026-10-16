@@ -27,17 +27,18 @@ def build(output_dir: Path, force: bool = False) -> None:
     output_dir.mkdir(parents=True)
 
     # ── Protractor ─────────────────────────────────────────────────────────────
-    print("Copying protractor...")
-    shutil.copytree("protractor", output_dir / "protractor")
+    print("Copying protractor (including data/timbre_data_*/)...")
+    # timbre_log/ was a local scratch folder (git clones); never deploy it if it reappears.
+    shutil.copytree("protractor", output_dir / "protractor",
+                    ignore=shutil.ignore_patterns("timbre_log"))
 
-    print("Copying timbre sources manifest...")
-    shutil.copy("timbre_sources.json", output_dir / "timbre_sources.json")
-
-    print("Copying timbre data directories...")
-    for src in sorted(Path(".").glob("timbre_data_*")):
-        if src.is_dir():
-            print(f"  {src.name}")
-            shutil.copytree(src, output_dir / src.name)
+    pr_data = Path("protractor") / "data"
+    if not (pr_data / "timbre_sources.json").exists():
+        print("Warning: protractor/data/timbre_sources.json not found.")
+    else:
+        for src in sorted(pr_data.glob("timbre_data_*")):
+            if src.is_dir():
+                print(f"  {src.name}")
 
     # ── Steady States ──────────────────────────────────────────────────────────
     ss_src = Path("steady_states")

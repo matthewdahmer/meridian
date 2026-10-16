@@ -937,8 +937,8 @@ const App = (() => {
 
   // Fetch and decompress scenario files; return raw (un-aggregated) columns.
   async function loadRaw(date, chips) {
-    const limUrl = `../${_currentDataDir}/${date}_limit_chips${chips}.json.gz`;
-    const offUrl = `../${_currentDataDir}/${date}_offset_chips${chips}.json.gz`;
+    const limUrl = `data/${_currentDataDir}/${date}_limit_chips${chips}.json.gz`;
+    const offUrl = `data/${_currentDataDir}/${date}_offset_chips${chips}.json.gz`;
     const [limBuf, offBuf] = await Promise.all([fetchGz(limUrl), fetchGz(offUrl)]);
     const [rawLim, rawOff] = await Promise.all([
       decompressAndParse(limBuf),
@@ -1032,7 +1032,7 @@ const App = (() => {
   }
 
   async function loadManifestAndSetup(dir) {
-    const manifest = await fetch(`../${dir}/manifest.json`).then(r => {
+    const manifest = await fetch(`data/${dir}/manifest.json`).then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}: ${dir}/manifest.json`);
       return r.json();
     });
@@ -1066,7 +1066,7 @@ const App = (() => {
 
   async function init() {
     try {
-      const sources = await fetch('../timbre_sources.json').then(r => {
+      const sources = await fetch('data/timbre_sources.json').then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}: timbre_sources.json`);
         return r.json();
       });
