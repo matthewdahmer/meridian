@@ -159,7 +159,13 @@ const App = (() => {
   }
 
   // Decompress a gzip ArrayBuffer → text → replace NaN → JSON.parse.
+  // A server that sends .gz files with "Content-Encoding: gzip" has the browser
+  // decompress them already; only gunzip when the gzip magic bytes are present.
   async function decompressAndParse(buffer) {
+    const head = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
+    if (!(head[0] === 0x1f && head[1] === 0x8b)) {
+      return JSON.parse(new TextDecoder().decode(buffer).replace(/\bNaN\b/g, 'null'));
+    }
     const ds = new DecompressionStream('gzip');
     const readable = new ReadableStream({
       start(ctrl) { ctrl.enqueue(new Uint8Array(buffer)); ctrl.close(); }

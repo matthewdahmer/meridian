@@ -110,7 +110,7 @@ init()
               └── loadRaw(date, chips) → { rawLim, rawOff, meta }
                     └── fetchGz() — fetch + LRU-cache compressed ArrayBuffers
                          URL pattern: data/${_currentDataDir}/${date}_${type}_chips${chips}.json.gz
-                    └── decompressAndParse() — DecompressionStream → NaN→null → JSON.parse
+                    └── decompressAndParse() — DecompressionStream (skipped if bytes lack the gzip magic, i.e. server already decoded them) → NaN→null → JSON.parse
                     └── parseScenarioColumns()
               └── populateLimitDropdowns(rawLim)
                     └── each ALL_LIMITS entry: unique values sorted ascending; preserves

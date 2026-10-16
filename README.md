@@ -238,3 +238,4 @@ Clicking a model in the Steady States sidebar from within the protractor navigat
 - Protractor scenario files may contain literal `NaN` (not valid JSON). The app replaces `NaN` with `null` before parsing.
 - Steady states chart files are gzip-compressed JSON (`.json.gz`, no `NaN` values), decompressed in the browser with `DecompressionStream`; `manifest.json`, `metadata.json` and the CSVs are plain.
 - Model dashboard data files are gzip-compressed JSON (`.json.gz`). The app decompresses them in the browser using the `DecompressionStream` API. All temperature and residual values in the files are always in °C regardless of the model's display unit; the app converts to °F at render time for applicable models.
+- All three apps check for the gzip magic bytes (`1f 8b`) before decompressing, so `.json.gz` files load whether the server sends them as raw bytes or with `Content-Encoding: gzip` (browser already decoded).

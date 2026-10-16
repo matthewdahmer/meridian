@@ -151,6 +151,10 @@ const App = (() => {
     const r = await fetch(url);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const buf = await r.arrayBuffer();
+    // A server that sends .gz files with "Content-Encoding: gzip" has the browser
+    // decompress them already; only gunzip when the gzip magic bytes are present.
+    const head = new Uint8Array(buf, 0, Math.min(2, buf.byteLength));
+    if (!(head[0] === 0x1f && head[1] === 0x8b)) return new TextDecoder().decode(buf);
     const ds = new DecompressionStream('gzip');
     const w = ds.writable.getWriter();
     w.write(new Uint8Array(buf)); w.close();
