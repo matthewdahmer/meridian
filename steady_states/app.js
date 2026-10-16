@@ -7,7 +7,8 @@
  * Schema contract (SCHEMA.md):
  *   manifest.json  → array of NavEntry {nav_id, display_name, msid, units, controls}
  *   metadata.json  → {nav_id, display_name, pitch_step, configs: {config_id: {dates, files, table_csv}}}
- *   <date>.json    → {times, series[{pitch, temperatures}], meta{start_date,end_date,units,annotation}}
+ *   <date>.json.gz → gzip of {times, series[{pitch, temperatures}], meta{start_date,end_date,units,annotation}}
+ *                    (fetched as bytes and decompressed with DecompressionStream; see parseJsonBytes)
  *
  * All paths in metadata.json begin with "data/" and are passed directly to fetch().
  */
@@ -271,6 +272,36 @@
     return resp.json();
   }
 
+  /**
+   * Parse JSON from fetched bytes, gunzipping first if they are gzip data.
+   *
+   * Chart files are stored as .json.gz (SCHEMA.md §4) and decompressed with
+   * the browser's built-in DecompressionStream, as the Meridian apps do, so no
+   * library is needed. The gzip magic bytes are checked rather than assumed:
+   * a server configured to send .gz files with "Content-Encoding: gzip" has
+   * the browser decompress them already, and the bytes arrive as plain JSON.
+   *
+   * @param {ArrayBuffer} buffer
+   * @returns {Promise<any>}
+   */
+  async function parseJsonBytes(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let text;
+    if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+      text = await new Response(stream).text();
+    } else {
+      text = new TextDecoder().decode(bytes);
+    }
+    return JSON.parse(text);
+  }
+
+  async function fetchGzipJSON(path) {
+    const resp = await fetch(path);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${path}`);
+    return parseJsonBytes(await resp.arrayBuffer());
+  }
+
   async function fetchText(path) {
     const resp = await fetch(path);
     if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${path}`);
@@ -296,7 +327,7 @@
   async function loadChartData(chartJsonPath) {
     const key = getChartCacheKey(chartJsonPath);
     if (_cache.charts[key]) return _cache.charts[key];
-    _cache.charts[key] = await fetchJSON(chartJsonPath);
+    _cache.charts[key] = await fetchGzipJSON(chartJsonPath);
     return _cache.charts[key];
   }
 
@@ -678,7 +709,7 @@
         let val = c.trim();
         if (ci > 0) {
           const n = parseFloat(val);
-          if (isFinite(n)) val = n.toFixed(3);
+          if (isFinite(n)) val = n.toFixed(2);  // CSV values have 2 decimals (TEMP_DECIMALS)
         }
         parts.push(`<${tag}>${val}</${tag.split(' ')[0]}>`);
       });
@@ -705,6 +736,7 @@
     buildResolutionToggleHTML,
     filterChartByStep,
     filterTableCsvByStep,
+    parseJsonBytes,
     // Cache (exposed so tests can inspect and reset it)
     _cache,
     // Async data loaders

@@ -36,9 +36,9 @@ meridian/
 │           ├── manifest.json        ← read freely; dates, chips, limits arrays
 │           └── YYYY-DDD-*_chipsN.json.gz ← 60 compressed JSON scenario files (5 dates × 2 types × 6 chips)
 ├── steady_states/
-│   ├── index.html                   ← Meridian-specific; NOT a copy of the xija template (merge changes by hand)
-│   ├── app.js                       ← verbatim copy of ../xija_steady_states/templates/app.js
-│   ├── vendor/                      ← same vendor files as protractor/vendor/
+│   ├── index.html                   ← installed by xija_steady_states --setup; edit there, not here
+│   ├── app.js                       ← installed by xija_steady_states --setup; edit there, not here
+│   ├── vendor/                      ← same vendor files as protractor/vendor/ (D3 7.9.0, Bootstrap 5.3.3)
 │   └── data/                        ← generated; do NOT read individual files (manifest.json OK)
 │       ├── manifest.json
 │       └── <nav_id>/...
@@ -500,9 +500,13 @@ Shows Xija thermal model steady-state temperatures as multi-line dwell curves an
 
 ### Architecture
 
-`steady_states/app.js` is a **verbatim copy** of `../xija_steady_states/templates/app.js`. It exposes a global `App` object with methods for loading manifest/metadata/chart data, rendering charts and tables, building controls HTML, pitch-resolution filtering, and handling URL params.
+Since 2026-10-16 (`xija_steady_states` commit `66bd8f7`), `steady_states/index.html` and `steady_states/app.js` are **exact copies** of `../xija_steady_states/xija_steady_states/templates/index.html` and `app.js`, installed by that package's `--setup` (see Updating from xija_steady_states). The xija template *is* this Meridian page: Meridian sidebar with the Pitch Sensitivity link and the Steady States / Model Dashboard collapses, `?model=` deep links, `app.js` loaded from the page directory. Don't edit either file here; a change made here is overwritten by the next `--setup`. Make it in `xija_steady_states` and re-install. (Before 2026-10-16 the xija template was a standalone page and this `index.html` was a hand-merged Meridian variant, last synced at `faa9a5c`.)
 
-`steady_states/index.html` is **not** a copy of the xija template. It has Meridian's own layout (sidebar with Pitch Sensitivity and Model Dashboard links, `app.js` loaded from the page directory rather than `vendor/`). Its boot script mirrors the template's boot script, so template changes to that script have to be merged in by hand.
+`app.js` exposes a global `App` object with methods for loading manifest/metadata/chart data, rendering charts and tables, building controls HTML, pitch-resolution filtering, and handling URL params. The inline boot script in `index.html` builds the sidebar, wires the controls, and fills the Model Dashboard links from `../model_dash/data/manifest.json` (fails silently).
+
+**Phone layout:** `#sidebar` carries Bootstrap's `offcanvas-md offcanvas-start`. At 768 px and wider it is the normal sticky sidebar; below that it is hidden and the ☰ Menu button (`data-bs-target="#sidebar"`) slides it in as a drawer with a close button, and picking a model closes it. The sticky/height rules live inside `@media (min-width: 768px)` (sticky positioning would break the drawer's `position: fixed`), and the sidebar background uses `!important` because `.offcanvas-md` forces a transparent background at md and up. The other two apps still have the broken Menu button this replaced (see Known Issues).
+
+**Chart data is gzip-compressed** (`<nav_id>_<config_id>_<date>.json.gz`, temperatures at 2 decimals) since `xija_steady_states` 2026-10-15. `App.loadChartData` fetches the bytes and decompresses with `DecompressionStream('gzip')` when the file starts with the gzip magic bytes, and otherwise parses plain JSON, so it reads both old `.json` and new `.json.gz` data. `manifest.json`, `metadata.json` and all CSVs stay uncompressed.
 
 ### Pitch resolution (5° / 1°)
 
@@ -510,31 +514,29 @@ Shows Xija thermal model steady-state temperatures as multi-line dwell curves an
 
 ### Updating from xija_steady_states
 
-The steady-states site is developed in `../xija_steady_states/xija_steady_states/templates/`. Make feature changes there, then bring them into Meridian:
+The steady-states site is developed in `../xija_steady_states/xija_steady_states/templates/`. Make changes there (with its tests), then install them into Meridian. From `meridian/`, in the `ska3-dev` environment:
 
-1. **`app.js`** — copy verbatim:
+1. **Page** (`index.html`, `app.js`):
    ```bash
-   cp ../xija_steady_states/xija_steady_states/templates/app.js steady_states/app.js
+   cd ../xija_steady_states/
+   python -m xija_steady_states --setup --output-dir ../meridian/steady_states
    ```
-2. **`index.html`** — never copy the template over Meridian's file. Diff the template since the last synced commit and apply the changes by hand (the diff won't `patch` cleanly because the layouts differ):
+   This copies `index.html` and `app.js` (always overwriting them), downloads any vendor file that is missing (D3 7.9.0, Bootstrap 5.3.3; files already present are skipped, so it runs offline), and deletes a stale `vendor/app.js` if one exists. It does not touch `data/`. Run it before step 2 whenever the reader changed: the current `app.js` reads both `.json` and `.json.gz`, but an older one cannot read new data.
+2. **Data**:
    ```bash
-   git -C ../xija_steady_states diff <last-synced> HEAD -- xija_steady_states/templates/index.html
+   SKA=~/AXAFDATA/SKADATA python -m xija_steady_states --output-dir ../meridian/steady_states
    ```
-   **Last synced: `faa9a5c`** ("Generate 1° pitch data by default and add a 5°/1° toggle to the website", Oct 2026). Update this line after each sync.
-3. **Data** — regenerate **without `--setup`**:
-   ```bash
-   SKA=~/AXAFDATA/SKADATA python -m xija_steady_states --output-dir steady_states
-   ```
+   Without `--force` only missing per-date files are computed; summary tables and `metadata.json` are always rebuilt.
+3. **Hard-refresh** the browser after a page update (see Browser caching below).
 
-> ⚠️ **Never run `xija_steady_states --setup` (or `--setup --force`) with `--output-dir steady_states`.** `--setup` builds a standalone xija site in the output directory: it overwrites Meridian's `index.html` with the generic template (losing the Meridian sidebar), writes `app.js` to `vendor/app.js` (so `build.py`, which copies `steady_states/app.js`, fails), replaces Bootstrap 5.3.3 with 5.3.0, and adds test-only `tests.html` and `vendor/qunit.*`. To recover: `git restore steady_states/index.html steady_states/app.js steady_states/vendor/`, delete `tests.html`, `vendor/app.js` and `vendor/qunit.*`, then redo step 1.
+> ⚠️ **Never pass `--with-tests` with `--output-dir` pointing here.** It adds the QUnit browser suite (`tests.html`, `vendor/qunit.js`, `vendor/qunit.css`), and `build.py` copies all of `vendor/` into `dist/`. If it happens, delete those three files. `--setup --force` is safe but unnecessary: it only re-downloads the vendor libraries (needs internet).
 
-Quick check that a sync is complete:
+Quick check that an update is complete:
 ```bash
-diff -q steady_states/app.js ../xija_steady_states/xija_steady_states/templates/app.js   # no output
-git status --short steady_states                                                         # no tests.html / vendor/app.js / vendor/qunit.*
-# App.* functions the template calls but Meridian's index.html doesn't (expect no output):
-comm -23 <(grep -o 'App\.[A-Za-z_]*' ../xija_steady_states/xija_steady_states/templates/index.html | sort -u) \
-         <(grep -o 'App\.[A-Za-z_]*' steady_states/index.html | sort -u)
+diff -q steady_states/index.html ../xija_steady_states/xija_steady_states/templates/index.html   # no output
+diff -q steady_states/app.js     ../xija_steady_states/xija_steady_states/templates/app.js       # no output
+git status --short steady_states          # only index.html / app.js, if anything; no tests.html, vendor/app.js, vendor/qunit.*
+ls steady_states/vendor                   # bootstrap.bundle.min.js  bootstrap.min.css  d3.min.js
 ```
 
 ### Browser caching after a deploy
@@ -635,6 +637,10 @@ Deploys made before the move to `protractor/data/` put `timbre_data_*/` and `tim
 ### Leftover `protractor/timbre_log/` on servers deployed before Oct 2026 (priority: low)
 
 `protractor/timbre_log/` was a local scratch folder (clones of `sot/timbre` and `sot/chandra_models`, including their `.git/` directories). Older builds copied it into `dist/protractor/timbre_log/` because `build.py` copied all of `protractor/`. It has been deleted locally, and `build.py` now excludes `timbre_log` from the protractor copy, but a webroot deployed from an older build may still contain it. Fix: delete `protractor/timbre_log/` from the server by hand.
+
+### Broken ☰ Menu button on phones in protractor and model_dash (priority: medium)
+
+Below 768 px both apps hide `#sidebar` and show a `#mobile-nav-btn` "☰ Menu" button with `data-bs-target="#offcanvasSidebar"`, but no element has that id, so the button does nothing and a phone user cannot reach the sidebar (no switching models, data sources or apps). `steady_states/` had the same bug until 2026-10-16. Fix, as done there (see App 2 › Architecture › Phone layout): give `#sidebar` the classes `offcanvas-md offcanvas-start` and `tabindex="-1"`; point the button at `#sidebar`; move the sidebar's `position: sticky` / `height: 100vh` / `width` rules into `@media (min-width: 768px)` and drop the `display: none` rule for `#sidebar` below 768 px; set `--bs-offcanvas-width: 260px` and `background-color: #1e2937 !important` on `#sidebar`; optionally add a `btn-close btn-close-white d-md-none` button with `data-bs-dismiss="offcanvas" data-bs-target="#sidebar"`, and call `bootstrap.Offcanvas.getInstance(sidebar)?.hide()` after a sidebar selection. Check at ~375 px wide.
 
 ### Stale cached `app.js` after deploys (all apps; priority: medium)
 
