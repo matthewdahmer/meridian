@@ -602,7 +602,7 @@ Vendor files are per-app — no shared copy. ~500 KB duplication is acceptable a
 Runs, in order, stopping at the first failure:
 
 ```
-deploy.csh                  source $SKA_ENVS (default /proj/sot/ska3/flight/bin/ska_envs.csh) → exit 2 if missing or SKA unset
+deploy.csh                  source /proj/sot/ska3/flight/bin/ska_envs.csh → exit 2 if missing or SKA unset
   └── python deploy.py $argv
 deploy.py
   ├── check_environment()   all config problems reported together → exit 2
@@ -616,7 +616,7 @@ deploy.py
 Settings come from `deploy_config.json` (gitignored; template in `deploy_config.example.json`), overridable with `--dest` and `--model-days`. See README "Regenerating Data and Deploying" for the settings table, flags and an example crontab line. Logger name: `meridian.deploy`. Every subprocess line is re-logged at INFO with two-space indent; `--log-file` appends to a file as well as stderr.
 
 **Design decisions:**
-- **The Ska environment comes from the Ska setup script, not from `deploy.py`.** `deploy.csh` sources it, and `deploy.py` inherits `SKA` and `PATH` and only checks them. `SKA` is checked *before* importing anything, because kadi (imported by `chandra_model_eval`) reads `os.environ["SKA"]` at import time and crashes with `KeyError: 'SKA'` without it. The setup script path is a default in `deploy.csh` (`SKA_ENVS`) that must be confirmed on the deployment host; `SKA_ENVS_SCRIPT` overrides it.
+- **The Ska environment comes from the Ska setup script, not from `deploy.py`.** `deploy.csh` sources it, and `deploy.py` inherits `SKA` and `PATH` and only checks them. `SKA` is checked *before* importing anything, because kadi (imported by `chandra_model_eval`) reads `os.environ["SKA"]` at import time and crashes with `KeyError: 'SKA'` without it. The setup script is fixed at `/proj/sot/ska3/flight/bin/ska_envs.csh` (`SKA_ENVS` in `deploy.csh`). Don't add an override with a one-line `if ($?VAR) set X = "$VAR"`: csh expands every variable on that line before testing the condition, so it fails with `VAR: Undefined variable` whenever VAR is unset (this happened in Oct 2026). Use a block `if ... then ... endif` instead.
 - **Must run under the Ska Python.** It runs both generators with `sys.executable`. `xija_steady_states` isn't installed in ska3-dev; it only imports when run from its own checkout, hence `xija_repo`. `chandra_model_eval` *is* installed in ska3-dev site-packages (non-editable), so changes in `~/AXAFLIB/chandra_model_eval` don't take effect until it is reinstalled.
 - **Stop on any failure.** `chandra_model_eval` exits 1 if any single model fails. Deploying anyway would publish partial or mixed-age data, so nothing is synced.
 - **Permissions are set in `dist/`, not by rsync.** macOS openrsync rejects `--chmod=D755,F644` and silently ignores the other `--chmod` forms. `rsync -a` then carries the normalized modes, which also prevents the execute-bit `old mode`/`new mode` noise seen on the server in Oct 2026.

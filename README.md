@@ -181,7 +181,7 @@ cp deploy_config.example.json deploy_config.json   # gitignored; edit "dest", "x
 ./deploy.csh --dry-run                              # build, then list what rsync would change
 ```
 
-`deploy.csh` sources `/proj/sot/ska3/flight/bin/ska_envs.csh` by default. Confirm that path on the deployment host. To use a different script, edit `SKA_ENVS` in `deploy.csh` or set it per run: `setenv SKA_ENVS_SCRIPT /path/to/ska_envs.csh`. It exits 2 if the script is missing or doesn't set `SKA`.
+`deploy.csh` always sources `/proj/sot/ska3/flight/bin/ska_envs.csh` (set in `SKA_ENVS` at the top of the script). It exits 2 if that script is missing or doesn't set `SKA`.
 
 On a development Mac, skip the wrapper and set up the environment yourself:
 
