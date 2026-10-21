@@ -170,7 +170,7 @@ python -m http.server 8765 --directory dist
 Neither generator needs to be installed in the Ska environment. `deploy.py` puts the `xija_steady_states` and `chandra_model_eval` checkouts that sit next to `meridian/` (for example `~/AXAFLIB/xija_steady_states` and `~/AXAFLIB/chandra_model_eval`) first on `PYTHONPATH`, so it always runs the checked-out code. The log records each checkout's `git describe`.
 
 1. **steady_states data:** `python -m xija_steady_states --output-dir <meridian>/steady_states`. Without `--steady-states-force` it only computes missing dates.
-2. **model_dash data:** `python -m chandra_model_eval --trailing-days <model_days> model_dash/data <models_root> --log-file model_dash/data/run.log` (about 1 minute per model).
+2. **model_dash data:** `python -m chandra_model_eval --trailing-days <model_days> [--end-date <end>] model_dash/data <models_root> --log-file model_dash/data/run.log` (about 1 minute per model). `<end>` comes from `model_end_date` or `model_lag_days`; with neither, the window ends now.
 3. **build:** `build.build("dist", force=True)`, then sets every directory to 755 and every file to 644, and removes `.DS_Store` files.
 4. **deploy:** `rsync -a -z dist/ <dest>/` over SSH. It never deletes anything on the server.
 
@@ -198,7 +198,9 @@ SKA=~/AXAFDATA/SKADATA python deploy.py --dry-run
 | `xija_repo` | `../xija_steady_states` (next to `meridian/`) | xija_steady_states checkout, put on `PYTHONPATH` |
 | `model_eval_repo` | `../chandra_model_eval` (next to `meridian/`) | chandra_model_eval checkout, put on `PYTHONPATH` |
 | `models_root` | `~/AXAFLIB/chandra_models` | chandra_models checkout for `chandra_model_eval`; its tag is logged |
-| `model_days` | `1096` | model_dash window: trailing days ending today (about 3 years) |
+| `model_days` | `1096` | model_dash window length in days (about 3 years), counted back from the end date |
+| `model_end_date` | `null` | fixed end of the model_dash window, `YYYY:DDD` or `YYYY-MM-DD` |
+| `model_lag_days` | `0` | end the model_dash window this many days before today (UTC), since archive telemetry can lag by a few days. Use this under cron rather than a fixed date. Set at most one of this and `model_end_date` |
 | `ssh_options` | `["-o", "BatchMode=yes"]` | fail instead of prompting for a password (required under cron) |
 
 Common runs (`./deploy.csh` takes the same options):
@@ -209,6 +211,8 @@ python deploy.py --skip-model-dash       # keep the current model_dash/data/
 python deploy.py --skip-data             # build + deploy only
 python deploy.py --no-deploy             # regenerate + build, don't sync
 python deploy.py --model-days 365        # override the model_dash window once
+python deploy.py --model-lag-days 3      # end the model_dash window 3 days ago
+python deploy.py --model-end-date 2026:290   # end it on a fixed date (overrides the config's lag)
 python deploy.py --dest user@host:/tmp/meridian_test   # override the destination once
 ```
 

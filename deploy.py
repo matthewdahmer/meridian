@@ -3,7 +3,7 @@ deploy.py — Regenerate Meridian data, build the site, and rsync it to the serv
 
 Steps (each can be skipped):
     1. steady_states data   python -m xija_steady_states --output-dir <meridian>/steady_states
-    2. model_dash data      python -m chandra_model_eval --trailing-days N model_dash/data <models_root>
+    2. model_dash data      python -m chandra_model_eval --trailing-days N [--end-date D] model_dash/data <models_root>
     3. build                build.build("dist", force=True), then normalize permissions
     4. deploy               rsync -a dist/ <dest>/   (over SSH, never deletes remote files)
 
@@ -15,6 +15,8 @@ Usage:
     python deploy.py --skip-data             # build + deploy only
     python deploy.py --no-deploy             # regenerate + build, don't sync
     python deploy.py --dry-run               # show what rsync would change; no generation
+    python deploy.py --model-lag-days 3      # model_dash window ends 3 days ago (archive lag)
+    python deploy.py --model-end-date 2026:290   # model_dash window ends on a fixed date
     python deploy.py --log-file deploy.log   # for cron: also log to a file
 
 Must run inside the Ska environment (both generators import xija/cheta and need SKA set).
@@ -36,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import build
@@ -50,7 +53,11 @@ DEFAULTS = {
     "xija_repo": str(ROOT.parent / "xija_steady_states"),
     "model_eval_repo": str(ROOT.parent / "chandra_model_eval"),
     "models_root": "~/AXAFLIB/chandra_models",   # chandra_models checkout for chandra_model_eval
-    "model_days": 1096,                          # model_dash window: trailing days ending today (~3 years)
+    "model_days": 1096,                          # model_dash window length in days (~3 years)
+    # Where the model_dash window ends (set at most one): a fixed date, or N days before today (UTC).
+    # Neither: ends now. A lag suits cron, since telemetry in the archive can be a few days behind.
+    "model_end_date": None,                      # e.g. "2026:290" or "2026-10-17"
+    "model_lag_days": 0,
     "ssh_options": ["-o", "BatchMode=yes"],      # fail instead of prompting (needed under cron)
 }
 
@@ -102,6 +109,28 @@ def normalize_permissions(tree: Path) -> None:
             os.chmod(os.path.join(dirpath, name), 0o644)
 
 
+END_DATE_FORMATS = ("%Y:%j", "%Y-%m-%d")
+
+
+def valid_end_date(text: str) -> bool:
+    for fmt in END_DATE_FORMATS:
+        try:
+            datetime.strptime(text, fmt)
+            return True
+        except ValueError:
+            pass
+    return False
+
+
+def model_end_date(cfg: dict):
+    """The --end-date to pass to chandra_model_eval, or None for 'now'."""
+    if cfg["model_end_date"]:
+        return cfg["model_end_date"]
+    if cfg["model_lag_days"]:
+        return (datetime.now(timezone.utc) - timedelta(days=cfg["model_lag_days"])).strftime("%Y:%j")
+    return None
+
+
 def check_environment(args, cfg) -> None:
     """Fail fast (exit 2) on problems that would otherwise surface minutes into a run."""
     problems = []
@@ -142,6 +171,12 @@ def check_environment(args, cfg) -> None:
             problems.append(f"model_eval_repo is not a chandra_model_eval checkout: {cfg['model_eval_repo']}")
         if ska_ok:
             importable("chandra_model_eval")
+        if cfg["model_end_date"] and cfg["model_lag_days"]:
+            problems.append("set at most one of model_end_date and model_lag_days")
+        if cfg["model_end_date"] and not valid_end_date(str(cfg["model_end_date"])):
+            problems.append(f"model_end_date must be YYYY:DDD or YYYY-MM-DD: {cfg['model_end_date']}")
+        if not isinstance(cfg["model_lag_days"], int) or cfg["model_lag_days"] < 0:
+            problems.append(f"model_lag_days must be a non-negative integer: {cfg['model_lag_days']}")
     if not args.no_deploy:
         if not cfg["dest"]:
             problems.append('no destination: set "dest" in deploy_config.json or pass --dest')
@@ -183,17 +218,18 @@ def gen_steady_states(env: dict, cfg: dict, force: bool) -> None:
 
 
 def gen_model_dash(env: dict, cfg: dict) -> None:
-    log.info("── model_dash data (trailing %s days) ──", cfg["model_days"])
+    end = model_end_date(cfg)
+    log.info("── model_dash data (%s days ending %s) ──", cfg["model_days"], end or "now")
     repo = Path(cfg["model_eval_repo"]).expanduser()
     log.info("chandra_model_eval: %s (%s)", repo, describe_checkout(repo))
     models_root = Path(cfg["models_root"]).expanduser()
     log.info("chandra_models: %s (%s)", models_root, describe_checkout(models_root))
     data_dir = ROOT / "model_dash" / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    run([sys.executable, "-m", "chandra_model_eval",
-         "--trailing-days", str(cfg["model_days"]),
-         data_dir, models_root,
-         "--log-file", data_dir / "run.log"], env)
+    cmd = [sys.executable, "-m", "chandra_model_eval", "--trailing-days", str(cfg["model_days"])]
+    if end:
+        cmd += ["--end-date", end]
+    run(cmd + [data_dir, models_root, "--log-file", data_dir / "run.log"], env)
 
 
 def build_site(dist: Path) -> None:
@@ -226,6 +262,11 @@ def main(argv=None) -> int:
                    help="JSON settings file (default: deploy_config.json)")
     p.add_argument("--dest", help="override config 'dest' (user@host:/path/to/webroot)")
     p.add_argument("--model-days", type=int, help="override config 'model_days'")
+    end = p.add_mutually_exclusive_group()
+    end.add_argument("--model-end-date", metavar="DATE",
+                     help="end the model_dash window on DATE (YYYY:DDD or YYYY-MM-DD); overrides config")
+    end.add_argument("--model-lag-days", type=int, metavar="N",
+                     help="end the model_dash window N days before today (UTC); overrides config")
     p.add_argument("--skip-steady-states", action="store_true", help="don't regenerate steady_states/data/")
     p.add_argument("--skip-model-dash", action="store_true", help="don't regenerate model_dash/data/")
     p.add_argument("--skip-data", action="store_true", help="shorthand for both --skip-* flags")
@@ -253,6 +294,10 @@ def main(argv=None) -> int:
         cfg["dest"] = args.dest
     if args.model_days:
         cfg["model_days"] = args.model_days
+    if args.model_end_date is not None:
+        cfg["model_end_date"], cfg["model_lag_days"] = args.model_end_date, 0
+    if args.model_lag_days is not None:
+        cfg["model_end_date"], cfg["model_lag_days"] = None, args.model_lag_days
     if args.skip_data or args.dry_run:
         args.skip_steady_states = args.skip_model_dash = True
 
