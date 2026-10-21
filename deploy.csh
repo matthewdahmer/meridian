@@ -10,6 +10,12 @@
 # -f skips ~/.cshrc so cron and interactive runs get the same environment.
 
 set SKA_ENVS = /proj/sot/ska3/flight/bin/ska_envs.csh
+set MERIDIAN = $HOME/AXAFLIB/meridian
+
+if (! -r $MERIDIAN/deploy.py) then
+    echo "deploy.csh: deploy.py not found: $MERIDIAN/deploy.py" > /dev/stderr
+    exit 2
+endif
 
 if (! -r $SKA_ENVS) then
     echo "deploy.csh: Ska setup script not found or not readable: $SKA_ENVS" > /dev/stderr
@@ -21,7 +27,7 @@ if (! $?SKA) then
     exit 2
 endif
 
-# Run from the directory holding this script, wherever it was called from.
-cd "`dirname $0`"
-python deploy.py $argv:q
+# Full path, so this works from any directory (and from a copy of this script
+# elsewhere). Relative paths in the arguments are relative to the caller's directory.
+python $MERIDIAN/deploy.py $argv:q
 exit $status

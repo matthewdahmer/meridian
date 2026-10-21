@@ -603,11 +603,11 @@ Runs, in order, stopping at the first failure:
 
 ```
 deploy.csh                  source /proj/sot/ska3/flight/bin/ska_envs.csh → exit 2 if missing or SKA unset
-  └── python deploy.py $argv
+  └── python $HOME/AXAFLIB/meridian/deploy.py $argv   (full path: runs from any directory)
 deploy.py
   ├── check_environment()   all config problems reported together → exit 2
   ├── flock(.deploy.lock)   second concurrent run → exit 3
-  ├── gen_steady_states()   (cd xija_repo) python -m xija_steady_states --output-dir <meridian>/steady_states [--force]
+  ├── gen_steady_states()   python -m xija_steady_states --output-dir <meridian>/steady_states [--force]
   ├── gen_model_dash()      python -m chandra_model_eval --trailing-days N model_dash/data <models_root> --log-file model_dash/data/run.log
   ├── build_site()          build.build(dist, force=True) → chmod 755/644 → delete .DS_Store
   └── deploy()              rsync -a -z -e "ssh -o BatchMode=yes" --itemize-changes dist/ <dest>/
@@ -617,7 +617,9 @@ Settings come from `deploy_config.json` (gitignored; template in `deploy_config.
 
 **Design decisions:**
 - **The Ska environment comes from the Ska setup script, not from `deploy.py`.** `deploy.csh` sources it, and `deploy.py` inherits `SKA` and `PATH` and only checks them. `SKA` is checked *before* importing anything, because kadi (imported by `chandra_model_eval`) reads `os.environ["SKA"]` at import time and crashes with `KeyError: 'SKA'` without it. The setup script is fixed at `/proj/sot/ska3/flight/bin/ska_envs.csh` (`SKA_ENVS` in `deploy.csh`). Don't add an override with a one-line `if ($?VAR) set X = "$VAR"`: csh expands every variable on that line before testing the condition, so it fails with `VAR: Undefined variable` whenever VAR is unset (this happened in Oct 2026). Use a block `if ... then ... endif` instead.
-- **Must run under the Ska Python.** It runs both generators with `sys.executable`. `xija_steady_states` isn't installed in ska3-dev; it only imports when run from its own checkout, hence `xija_repo`. `chandra_model_eval` *is* installed in ska3-dev site-packages (non-editable), so changes in `~/AXAFLIB/chandra_model_eval` don't take effect until it is reinstalled.
+- **Must run under the Ska Python.** It runs both generators with `sys.executable`.
+- **The generators run from checkouts, not installs.** On the deployment host, neither `xija_steady_states` nor `chandra_model_eval` is installed in the Ska environment; both are checkouts next to `meridian/`. `generator_env()` puts `xija_repo` and `model_eval_repo` (default `ROOT.parent/<name>`) first on `PYTHONPATH`, and `check_environment()` adds them to `sys.path` so its import checks see the same code. On a Mac where `chandra_model_eval` is also pip-installed, the checkout still wins. Each checkout's `git describe --dirty` is logged.
+- **Paths in arguments are relative to the caller.** `main()` resolves `--config` and `--log-file` before `os.chdir(ROOT)`, so `deploy.csh --log-file deploy.log` writes to the caller's directory.
 - **Stop on any failure.** `chandra_model_eval` exits 1 if any single model fails. Deploying anyway would publish partial or mixed-age data, so nothing is synced.
 - **Permissions are set in `dist/`, not by rsync.** macOS openrsync rejects `--chmod=D755,F644` and silently ignores the other `--chmod` forms. `rsync -a` then carries the normalized modes, which also prevents the execute-bit `old mode`/`new mode` noise seen on the server in Oct 2026.
 - **No `--delete`.** The webroot may hold files Meridian doesn't own. Stale files must be removed by hand (see Known Issues for the current list).

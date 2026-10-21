@@ -2,7 +2,7 @@
 deploy.py — Regenerate Meridian data, build the site, and rsync it to the server.
 
 Steps (each can be skipped):
-    1. steady_states data   (cd <xija_repo> && python -m xija_steady_states --output-dir <meridian>/steady_states)
+    1. steady_states data   python -m xija_steady_states --output-dir <meridian>/steady_states
     2. model_dash data      python -m chandra_model_eval --trailing-days N model_dash/data <models_root>
     3. build                build.build("dist", force=True), then normalize permissions
     4. deploy               rsync -a dist/ <dest>/   (over SSH, never deletes remote files)
@@ -18,6 +18,8 @@ Usage:
     python deploy.py --log-file deploy.log   # for cron: also log to a file
 
 Must run inside the Ska environment (both generators import xija/cheta and need SKA set).
+Neither generator is installed there: both run from checkouts next to meridian/ (xija_repo,
+model_eval_repo), which are put on PYTHONPATH.
 On the deployment host, run it through deploy.csh, which sources the Ska setup script first.
 
 Exit codes: 0 success; 1 a step failed; 2 bad configuration; 3 another run holds the lock.
@@ -44,7 +46,9 @@ LOCK_FILE = ROOT / ".deploy.lock"
 
 DEFAULTS = {
     "dest": None,                                # user@host:/path/to/webroot (required to deploy)
-    "xija_repo": "~/AXAFLIB/xija_steady_states", # not pip-installed: run from its checkout
+    # Generator checkouts, not pip-installed: put on PYTHONPATH. Default: next to meridian/.
+    "xija_repo": str(ROOT.parent / "xija_steady_states"),
+    "model_eval_repo": str(ROOT.parent / "chandra_model_eval"),
     "models_root": "~/AXAFLIB/chandra_models",   # chandra_models checkout for chandra_model_eval
     "model_days": 1096,                          # model_dash window: trailing days ending today (~3 years)
     "ssh_options": ["-o", "BatchMode=yes"],      # fail instead of prompting (needed under cron)
@@ -111,6 +115,11 @@ def check_environment(args, cfg) -> None:
     elif generating and not ska_ok:
         problems.append(f"SKA directory does not exist: {ska}")
 
+    # Import checks see the same checkouts the generators will (see generator_env).
+    for repo in reversed(generator_paths(cfg)):
+        if repo not in sys.path:
+            sys.path.insert(0, repo)
+
     def importable(module):
         try:
             __import__(module)
@@ -128,6 +137,9 @@ def check_environment(args, cfg) -> None:
     if not args.skip_model_dash:
         if not Path(cfg["models_root"]).expanduser().is_dir():
             problems.append(f"models_root does not exist: {cfg['models_root']}")
+        pkg = Path(cfg["model_eval_repo"]).expanduser() / "chandra_model_eval" / "__main__.py"
+        if not pkg.exists():
+            problems.append(f"model_eval_repo is not a chandra_model_eval checkout: {cfg['model_eval_repo']}")
         if ska_ok:
             importable("chandra_model_eval")
     if not args.no_deploy:
@@ -141,22 +153,41 @@ def check_environment(args, cfg) -> None:
         sys.exit(2)
 
 
+def generator_paths(cfg: dict) -> list:
+    return [str(Path(cfg[k]).expanduser()) for k in ("xija_repo", "model_eval_repo")]
+
+
+def generator_env(cfg: dict) -> dict:
+    """Environment for the generators: inherited Ska env, with both checkouts first on PYTHONPATH."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(generator_paths(cfg) + [p for p in [env.get("PYTHONPATH")] if p])
+    return env
+
+
+def describe_checkout(path: Path) -> str:
+    out = subprocess.run(["git", "-C", str(path), "describe", "--tags", "--always", "--dirty"],
+                         capture_output=True, text=True).stdout.strip()
+    return out or "not a git checkout"
+
+
 # ── Steps ─────────────────────────────────────────────────────────────────────
 
 def gen_steady_states(env: dict, cfg: dict, force: bool) -> None:
     log.info("── steady_states data ──")
+    repo = Path(cfg["xija_repo"]).expanduser()
+    log.info("xija_steady_states: %s (%s)", repo, describe_checkout(repo))
     cmd = [sys.executable, "-m", "xija_steady_states", "--output-dir", ROOT / "steady_states"]
     if force:
         cmd.append("--force")
-    run(cmd, env, cwd=Path(cfg["xija_repo"]).expanduser())
+    run(cmd, env)
 
 
 def gen_model_dash(env: dict, cfg: dict) -> None:
     log.info("── model_dash data (trailing %s days) ──", cfg["model_days"])
+    repo = Path(cfg["model_eval_repo"]).expanduser()
+    log.info("chandra_model_eval: %s (%s)", repo, describe_checkout(repo))
     models_root = Path(cfg["models_root"]).expanduser()
-    tag = subprocess.run(["git", "-C", str(models_root), "describe", "--tags", "--always"],
-                         capture_output=True, text=True).stdout.strip()
-    log.info("chandra_models: %s (%s)", models_root, tag or "not a git checkout")
+    log.info("chandra_models: %s (%s)", models_root, describe_checkout(models_root))
     data_dir = ROOT / "model_dash" / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     run([sys.executable, "-m", "chandra_model_eval",
@@ -205,6 +236,11 @@ def main(argv=None) -> int:
                    help="skip data generation; build, then show what rsync would change without sending")
     p.add_argument("--log-file", type=Path, help="also append log output to this file")
     args = p.parse_args(argv)
+    # Resolve user-given paths against the caller's directory, then work from ROOT.
+    args.config = args.config.resolve()
+    if args.log_file:
+        args.log_file = args.log_file.resolve()
+    os.chdir(ROOT)
 
     handlers = [logging.StreamHandler()]
     if args.log_file:
@@ -230,7 +266,7 @@ def main(argv=None) -> int:
         log.error("another deploy.py run is in progress (%s is locked)", LOCK_FILE.name)
         return 3
 
-    env = os.environ.copy()
+    env = generator_env(cfg)
     dist = ROOT / "dist"
     t0 = time.monotonic()
     try:
@@ -249,5 +285,4 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    os.chdir(ROOT)
     sys.exit(main())

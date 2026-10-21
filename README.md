@@ -167,7 +167,9 @@ python -m http.server 8765 --directory dist
 
 `deploy.py` runs the whole pipeline in one command. On the deployment host, run it through `deploy.csh`, which sources the Ska environment setup script (that sets `SKA`, `PATH` and the Ska Python) and then runs `python deploy.py` with the same arguments. `deploy.py` never sets `SKA` itself.
 
-1. **steady_states data:** `python -m xija_steady_states --output-dir <meridian>/steady_states`, run from the `xija_steady_states` checkout (it isn't pip-installed). Without `--steady-states-force` it only computes missing dates.
+Neither generator needs to be installed in the Ska environment. `deploy.py` puts the `xija_steady_states` and `chandra_model_eval` checkouts that sit next to `meridian/` (for example `~/AXAFLIB/xija_steady_states` and `~/AXAFLIB/chandra_model_eval`) first on `PYTHONPATH`, so it always runs the checked-out code. The log records each checkout's `git describe`.
+
+1. **steady_states data:** `python -m xija_steady_states --output-dir <meridian>/steady_states`. Without `--steady-states-force` it only computes missing dates.
 2. **model_dash data:** `python -m chandra_model_eval --trailing-days <model_days> model_dash/data <models_root> --log-file model_dash/data/run.log` (about 1 minute per model).
 3. **build:** `build.build("dist", force=True)`, then sets every directory to 755 and every file to 644, and removes `.DS_Store` files.
 4. **deploy:** `rsync -a -z dist/ <dest>/` over SSH. It never deletes anything on the server.
@@ -177,7 +179,7 @@ If any step fails, the later steps don't run, so the server keeps its last good 
 One-time setup:
 
 ```bash
-cp deploy_config.example.json deploy_config.json   # gitignored; edit "dest", "xija_repo", "models_root"
+cp deploy_config.example.json deploy_config.json   # gitignored; edit "dest" and "models_root"
 ./deploy.csh --dry-run                              # build, then list what rsync would change
 ```
 
@@ -193,7 +195,8 @@ SKA=~/AXAFDATA/SKADATA python deploy.py --dry-run
 | Setting | Default | Meaning |
 |---|---|---|
 | `dest` | (required) | rsync destination, e.g. `user@host:/path/to/webroot` |
-| `xija_repo` | `~/AXAFLIB/xija_steady_states` | checkout that `python -m xija_steady_states` runs from |
+| `xija_repo` | `../xija_steady_states` (next to `meridian/`) | xija_steady_states checkout, put on `PYTHONPATH` |
+| `model_eval_repo` | `../chandra_model_eval` (next to `meridian/`) | chandra_model_eval checkout, put on `PYTHONPATH` |
 | `models_root` | `~/AXAFLIB/chandra_models` | chandra_models checkout for `chandra_model_eval`; its tag is logged |
 | `model_days` | `1096` | model_dash window: trailing days ending today (about 3 years) |
 | `ssh_options` | `["-o", "BatchMode=yes"]` | fail instead of prompting for a password (required under cron) |
@@ -217,7 +220,7 @@ From cron, call `deploy.csh` with a log file. SSH must work without a prompt (a 
 15 3 * * * /path/to/meridian/deploy.csh --log-file /path/to/meridian/deploy.log
 ```
 
-`deploy.csh` runs with `csh -f` (no `~/.cshrc`), so cron and interactive runs get the same environment. It changes to its own directory first, so it can be called from anywhere.
+`deploy.csh` runs with `csh -f` (no `~/.cshrc`), so cron and interactive runs get the same environment. It calls `$HOME/AXAFLIB/meridian/deploy.py` by its full path (`MERIDIAN` at the top of the script), so it can be run from any directory, or copied elsewhere. Relative paths in its arguments (such as `--log-file`) are relative to the directory you run it from.
 
 > The rsync built into macOS (openrsync) rejects `--chmod=D755,F644` and silently ignores the other `--chmod` forms. That's why `deploy.py` sets permissions in `dist/` before syncing instead of passing `--chmod`.
 
