@@ -67,6 +67,10 @@
       min-height: 60px;
     }
 
+    /* ── Lookahead card (the SVG inside is styled by attributes only; spec §6.6) ── */
+    #lookahead-card { border: none; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    #lookahead-container { position: relative; min-height: 60px; }
+
     /* ── D3 chart internals ── */
     .pitch-line { vector-effect: non-scaling-stroke; }
 
@@ -206,6 +210,24 @@
       </a>
     </div>
 
+    <!-- Settling-temperature lookahead (data: summary table; limits: metadata lookahead block) -->
+    <div class="card mb-4" id="lookahead-card">
+      <div class="card-header py-2">
+        <h6 class="mb-0 fw-semibold" id="lookahead-title">Settling Temperatures</h6>
+      </div>
+      <div class="card-body p-2">
+        <p class="small text-muted mb-2" id="lookahead-subtitle"></p>
+        <p class="small text-muted mb-2" id="lookahead-note" style="display:none"></p>
+        <div id="lookahead-loading" class="loading-state" style="display:none">
+          <div class="spinner-border spinner-border-sm text-primary" role="status">
+            <span class="visually-hidden">Loading settling temperatures…</span>
+          </div>
+          <span class="small">Loading settling temperatures…</span>
+        </div>
+        <div id="lookahead-container"></div>
+      </div>
+    </div>
+
     <!-- Summary table -->
     <h6 class="text-muted">Steady-State Summary Table</h6>
     <div id="table-loading" class="loading-state" style="display:none; min-height:60px">
@@ -246,6 +268,11 @@
   let currentChartPath = null;
   let currentTablePath = null;
 
+  // Config and date currently shown, for the lookahead card (it re-renders
+  // from the cached summary table on date change and resize; no fetch).
+  let currentConfigId = null;
+  let currentDateKey  = null;
+
   // ── Error display ──────────────────────────────────────────────────────────
   function showError(msg) {
     document.getElementById('error-panel').style.display = '';
@@ -263,6 +290,15 @@
   function setTableLoading(on) {
     document.getElementById('table-loading').style.display = on ? '' : 'none';
     if (on) document.getElementById('table-container').innerHTML = '';
+  }
+  function setLookaheadLoading(on) {
+    document.getElementById('lookahead-loading').style.display = on ? '' : 'none';
+    if (on) document.getElementById('lookahead-container').innerHTML = '';
+  }
+  function setLookaheadNote(text) {
+    const el = document.getElementById('lookahead-note');
+    el.textContent = text || '';
+    el.style.display = text ? '' : 'none';
   }
 
   // ── Sidebar nav building ───────────────────────────────────────────────────
@@ -318,9 +354,15 @@
     document.getElementById('dl-table-csv').href  = '#';
     currentChartPath = null;
     currentTablePath = null;
+    currentConfigId  = null;
+    currentDateKey   = null;
+    document.getElementById('lookahead-title').textContent = 'Settling Temperatures';
+    document.getElementById('lookahead-subtitle').textContent = '';
+    setLookaheadNote('');
 
     setChartLoading(true);
     setTableLoading(true);
+    setLookaheadLoading(true);
 
     let metadata;
     try {
@@ -328,6 +370,7 @@
     } catch (err) {
       setChartLoading(false);
       setTableLoading(false);
+      setLookaheadLoading(false);
       showError(`Failed to load metadata for ${navId}: ${err.message}`);
       return;
     }
@@ -442,6 +485,44 @@
     );
   }
 
+  // Draw the lookahead card from the cached summary table: one curve per year
+  // at the selected date's day of year. Ignores the 5°/1° toggle (spec D6).
+  // A failure here (e.g. a malformed lookahead block) is reported on the card
+  // only, so it never hides the summary table or blames it.
+  function renderCurrentLookahead() {
+    try {
+      drawCurrentLookahead();
+    } catch (err) {
+      document.getElementById('lookahead-container').innerHTML = '';
+      setLookaheadNote(`Settling temperatures could not be drawn: ${err.message}`);
+      console.error(err);
+    }
+  }
+
+  function drawCurrentLookahead() {
+    const csvText = currentTablePath && App._cache.tables[currentTablePath];
+    if (csvText === undefined || csvText === null || !currentMetadata) return;
+    const block = App.getLookahead(currentMetadata, currentConfigId);
+    const doy   = App.dateDoy(currentDateKey);
+    const data  = App.selectLookaheadColumns(csvText, doy, block.years);
+    const title = App.lookaheadTitle(block, data.years, doy);
+    document.getElementById('lookahead-title').textContent = title;
+    const sub = document.getElementById('lookahead-subtitle');
+    const container = document.getElementById('lookahead-container');
+    if (!data.years.length) {
+      sub.textContent = '';
+      setLookaheadNote(`No data for day ${doy}.`);
+      container.innerHTML = '';
+      return;
+    }
+    sub.replaceChildren(document.createTextNode(App.lookaheadDescription(doy)));
+    const trend = App.trendText(data.pitch, data.years, data.temps, block.headline, block.units_symbol);
+    if (trend) sub.append(document.createElement('br'), trend);
+    setLookaheadNote(block.configured ? ''
+      : 'No limits are defined for this model; the curves are shown without regimes.');
+    App.renderLookaheadChart(container, data, block, { doy, title });
+  }
+
   // ── Date change ────────────────────────────────────────────────────────────
   async function onDateChange() {
     if (!currentMetadata) return;
@@ -460,9 +541,12 @@
 
   // ── Chart + table loader ───────────────────────────────────────────────────
   async function loadChartAndTable(navId, configId, date) {
+    currentConfigId = configId;
+    currentDateKey  = date;
     if (!date) {
       setChartLoading(false);
       setTableLoading(false);
+      setLookaheadLoading(false);
       showError('No dates available for this configuration.');
       return;
     }
@@ -471,6 +555,7 @@
     if (!fileRef) {
       setChartLoading(false);
       setTableLoading(false);
+      setLookaheadLoading(false);
       showError(`No data file found for config="${configId}", date="${date}".`);
       return;
     }
@@ -495,21 +580,30 @@
     // Cached per path: every date of a config shares the same table.
     currentTablePath = (cfgEntry && cfgEntry.table_csv) || null;
     setTableLoading(true);
+    setLookaheadLoading(true);
+    let tableLoaded = false;
     try {
       if (currentTablePath) {
         await App.loadTableCsv(currentTablePath);
         setTableLoading(false);
+        setLookaheadLoading(false);
         renderCurrentTable();
+        tableLoaded = true;
       } else {
         setTableLoading(false);
+        setLookaheadLoading(false);
       }
     } catch (err) {
       setTableLoading(false);
+      setLookaheadLoading(false);
       const p = document.createElement('p');
       p.className = 'text-muted small';
       p.textContent = `Summary table could not be loaded: ${err.message}`;
       document.getElementById('table-container').replaceChildren(p);
+      setLookaheadNote(`Settling temperatures could not be drawn: the summary table could not be loaded (${err.message}).`);
     }
+    // Outside the table's try: a card error is the card's own (see renderCurrentLookahead).
+    if (tableLoaded) renderCurrentLookahead();
   }
 
   // ── Window resize ──────────────────────────────────────────────────────────
@@ -520,6 +614,7 @@
       // Only re-render if a model is shown; renderCurrentChart uses the cache
       if (!currentMetadata || !currentNavId) return;
       renderCurrentChart();
+      renderCurrentLookahead();
     }, 200);
   });
 
