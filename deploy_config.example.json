@@ -1,6 +1,5 @@
 {
   "dest": "user@host:/path/to/webroot",
-  "ska": "~/AXAFDATA/SKADATA",
   "xija_repo": "~/AXAFLIB/xija_steady_states",
   "models_root": "~/AXAFLIB/chandra_models",
   "model_days": 1096,

@@ -12,6 +12,7 @@ meridian/
 ├── build.py                       ← assembles all apps into dist/
 ├── deploy.py                      ← regenerates steady_states + model_dash data, builds, rsyncs to server
 ├── deploy_config.example.json     ← template for gitignored deploy_config.json
+├── deploy.csh                     ← sources the Ska setup script, then runs deploy.py (deployment host / cron)
 ├── protractor/                    ← constraint pitch sensitivity app
 │   ├── index.html
 │   ├── app.js
@@ -45,8 +46,8 @@ SKA=~/AXAFDATA/SKADATA python -m xija_steady_states --output-dir steady_states
 # Assemble deployable site (fast, no dependencies):
 python build.py [--output-dir dist] [--force]
 
-# All of the above plus model_dash data and rsync to the server (ska3-dev):
-python deploy.py [--skip-data] [--no-deploy] [--dry-run]
+# All of the above plus model_dash data and rsync to the server (Ska env; deploy.csh sets it up):
+./deploy.csh [--skip-data] [--no-deploy] [--dry-run]
 
 # Dev — serve source directly, no build needed:
 python -m http.server 8765   # from meridian/

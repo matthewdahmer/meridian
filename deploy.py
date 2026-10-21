@@ -17,7 +17,8 @@ Usage:
     python deploy.py --dry-run               # show what rsync would change; no generation
     python deploy.py --log-file deploy.log   # for cron: also log to a file
 
-Must run in the ska3-dev environment (both generators import xija/cheta).
+Must run inside the Ska environment (both generators import xija/cheta and need SKA set).
+On the deployment host, run it through deploy.csh, which sources the Ska setup script first.
 
 Exit codes: 0 success; 1 a step failed; 2 bad configuration; 3 another run holds the lock.
 """
@@ -43,7 +44,6 @@ LOCK_FILE = ROOT / ".deploy.lock"
 
 DEFAULTS = {
     "dest": None,                                # user@host:/path/to/webroot (required to deploy)
-    "ska": "~/AXAFDATA/SKADATA",                 # SKA env var for both generators
     "xija_repo": "~/AXAFLIB/xija_steady_states", # not pip-installed: run from its checkout
     "models_root": "~/AXAFLIB/chandra_models",   # chandra_models checkout for chandra_model_eval
     "model_days": 1096,                          # model_dash window: trailing days ending today (~3 years)
@@ -101,24 +101,35 @@ def normalize_permissions(tree: Path) -> None:
 def check_environment(args, cfg) -> None:
     """Fail fast (exit 2) on problems that would otherwise surface minutes into a run."""
     problems = []
+    generating = not args.skip_steady_states or not args.skip_model_dash
+    # SKA comes from the Ska setup script (deploy.csh sources it); never set here.
+    # Checked before the imports below, because kadi reads os.environ["SKA"] at import time.
+    ska = os.environ.get("SKA")
+    ska_ok = bool(ska) and Path(ska).is_dir()
+    if generating and not ska:
+        problems.append("SKA is not set: run via deploy.csh, or set up the Ska environment first")
+    elif generating and not ska_ok:
+        problems.append(f"SKA directory does not exist: {ska}")
+
+    def importable(module):
+        try:
+            __import__(module)
+            return True
+        except Exception as e:  # not just ImportError: Ska packages can fail on a broken environment
+            problems.append(f"cannot import {module} ({type(e).__name__}: {e}); not in the Ska environment?")
+            return False
+
     if not args.skip_steady_states:
         pkg = Path(cfg["xija_repo"]).expanduser() / "xija_steady_states" / "__main__.py"
         if not pkg.exists():
             problems.append(f"xija_repo is not a xija_steady_states checkout: {cfg['xija_repo']}")
-        try:
-            import xija  # noqa: F401
-        except ImportError:
-            problems.append("xija is not importable (activate ska3-dev)")
+        if ska_ok:
+            importable("xija")
     if not args.skip_model_dash:
-        try:
-            import chandra_model_eval  # noqa: F401
-        except ImportError:
-            problems.append("chandra_model_eval is not importable (activate ska3-dev)")
         if not Path(cfg["models_root"]).expanduser().is_dir():
             problems.append(f"models_root does not exist: {cfg['models_root']}")
-    if (not args.skip_steady_states or not args.skip_model_dash) and \
-            not Path(cfg["ska"]).expanduser().is_dir():
-        problems.append(f"SKA directory does not exist: {cfg['ska']}")
+        if ska_ok:
+            importable("chandra_model_eval")
     if not args.no_deploy:
         if not cfg["dest"]:
             problems.append('no destination: set "dest" in deploy_config.json or pass --dest')
@@ -220,7 +231,6 @@ def main(argv=None) -> int:
         return 3
 
     env = os.environ.copy()
-    env["SKA"] = str(Path(cfg["ska"]).expanduser())
     dist = ROOT / "dist"
     t0 = time.monotonic()
     try:
