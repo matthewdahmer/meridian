@@ -15,6 +15,8 @@ All three apps share the same dark sidebar theme, Bootstrap 5, and D3 v7. All ve
 ```
 meridian/
 ├── build.py                         ← assembles dist/ for deployment
+├── deploy.py                        ← regenerate data + build + rsync to the server
+├── deploy_config.example.json       ← copy to deploy_config.json (gitignored) and edit
 ├── protractor/                      ← pitch sensitivity app
 │   ├── index.html
 │   ├── app.js
@@ -157,6 +159,57 @@ python -m http.server 8765 --directory dist
 ```
 
 > `build.py` warns but does not fail if `steady_states/data/` or `model_dash/data/` is absent — generate the data first before a production build.
+
+---
+
+## Regenerating Data and Deploying (`deploy.py`)
+
+`deploy.py` runs the whole pipeline in one command:
+
+1. **steady_states data:** `python -m xija_steady_states --output-dir <meridian>/steady_states`, run from the `xija_steady_states` checkout (it isn't pip-installed). Without `--steady-states-force` it only computes missing dates.
+2. **model_dash data:** `python -m chandra_model_eval --trailing-days <model_days> model_dash/data <models_root> --log-file model_dash/data/run.log` (about 1 minute per model).
+3. **build:** `build.build("dist", force=True)`, then sets every directory to 755 and every file to 644, and removes `.DS_Store` files.
+4. **deploy:** `rsync -a -z dist/ <dest>/` over SSH. It never deletes anything on the server.
+
+If any step fails, the later steps don't run, so the server keeps its last good copy.
+
+One-time setup:
+
+```bash
+cp deploy_config.example.json deploy_config.json   # gitignored; edit "dest" at least
+conda activate ska3-dev
+python deploy.py --dry-run                          # build, then list what rsync would change
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `dest` | (required) | rsync destination, e.g. `user@host:/path/to/webroot` |
+| `ska` | `~/AXAFDATA/SKADATA` | `SKA` environment variable for both generators |
+| `xija_repo` | `~/AXAFLIB/xija_steady_states` | checkout that `python -m xija_steady_states` runs from |
+| `models_root` | `~/AXAFLIB/chandra_models` | chandra_models checkout for `chandra_model_eval`; its tag is logged |
+| `model_days` | `1096` | model_dash window: trailing days ending today (about 3 years) |
+| `ssh_options` | `["-o", "BatchMode=yes"]` | fail instead of prompting for a password (required under cron) |
+
+Common runs:
+
+```bash
+python deploy.py                         # everything
+python deploy.py --skip-model-dash       # keep the current model_dash/data/
+python deploy.py --skip-data             # build + deploy only
+python deploy.py --no-deploy             # regenerate + build, don't sync
+python deploy.py --model-days 365        # override the model_dash window once
+python deploy.py --dest user@host:/tmp/meridian_test   # override the destination once
+```
+
+Exit codes: `0` success, `1` a step failed, `2` configuration problem (all are listed before anything runs), `3` another run holds `.deploy.lock`.
+
+From cron, use the ska3-dev Python directly and a log file. SSH must work without a prompt (a key with no passphrase, or an agent the cron job can reach):
+
+```cron
+15 3 * * * cd ~/AXAFLIB/meridian && ~/miniconda3/envs/ska3-dev/bin/python deploy.py --log-file ~/AXAFLIB/meridian/deploy.log
+```
+
+> The rsync built into macOS (openrsync) rejects `--chmod=D755,F644` and silently ignores the other `--chmod` forms. That's why `deploy.py` sets permissions in `dist/` before syncing instead of passing `--chmod`.
 
 ---
 

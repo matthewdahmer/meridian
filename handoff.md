@@ -17,6 +17,8 @@ meridian/
 ├── web_theme.md
 ├── handoff.md                       ← this file
 ├── build.py                         ← assembles dist/ for deployment
+├── deploy.py                        ← regenerate both data sets, build, rsync to server (see Deploy Process)
+├── deploy_config.example.json       ← template for deploy_config.json (gitignored, per machine)
 ├── protractor/
 │   ├── index.html
 │   ├── app.js                       ← all logic, IIFE pattern
@@ -594,6 +596,36 @@ Vendor files are per-app — no shared copy. ~500 KB duplication is acceptable a
 
 ---
 
+## Deploy Process (`deploy.py`)
+
+Runs, in order, stopping at the first failure:
+
+```
+deploy.py
+  ├── check_environment()   all config problems reported together → exit 2
+  ├── flock(.deploy.lock)   second concurrent run → exit 3
+  ├── gen_steady_states()   (cd xija_repo) python -m xija_steady_states --output-dir <meridian>/steady_states [--force]
+  ├── gen_model_dash()      python -m chandra_model_eval --trailing-days N model_dash/data <models_root> --log-file model_dash/data/run.log
+  ├── build_site()          build.build(dist, force=True) → chmod 755/644 → delete .DS_Store
+  └── deploy()              rsync -a -z -e "ssh -o BatchMode=yes" --itemize-changes dist/ <dest>/
+```
+
+Settings come from `deploy_config.json` (gitignored; template in `deploy_config.example.json`), overridable with `--dest` and `--model-days`. See README "Regenerating Data and Deploying" for the settings table, flags and an example crontab line. Logger name: `meridian.deploy`. Every subprocess line is re-logged at INFO with two-space indent; `--log-file` appends to a file as well as stderr.
+
+**Design decisions:**
+- **Must run under ska3-dev Python.** It runs both generators with `sys.executable`. `xija_steady_states` isn't installed in ska3-dev; it only imports when run from its own checkout, hence `xija_repo`. `chandra_model_eval` *is* installed in ska3-dev site-packages (non-editable), so changes in `~/AXAFLIB/chandra_model_eval` don't take effect until it is reinstalled.
+- **Stop on any failure.** `chandra_model_eval` exits 1 if any single model fails. Deploying anyway would publish partial or mixed-age data, so nothing is synced.
+- **Permissions are set in `dist/`, not by rsync.** macOS openrsync rejects `--chmod=D755,F644` and silently ignores the other `--chmod` forms. `rsync -a` then carries the normalized modes, which also prevents the execute-bit `old mode`/`new mode` noise seen on the server in Oct 2026.
+- **No `--delete`.** The webroot may hold files Meridian doesn't own. Stale files must be removed by hand (see Known Issues for the current list).
+- **`BatchMode=yes`.** Under cron, an SSH password or passphrase prompt would hang forever. With this, ssh fails immediately instead (`Permission denied`), rsync exits non-zero, and `deploy.py` exits 1.
+- **`--dry-run` skips data generation** but still rebuilds `dist/`, so the itemized list reflects the current source tree.
+
+**Normal log:** `── steady_states data ──`, the generator output, `done in Ns`, then the same for model_dash (its own detail goes to `model_dash/data/run.log`), the build's copy lines, the rsync `--itemize-changes` lines, and `finished in N min`. **Failure:** `ERROR FAILED: <module> exited with code N after Ns. Later steps were not run.` and exit 1.
+
+**Runtime:** steady_states about 6 min for a full run (seconds to minutes when nothing is missing); model_dash about 1 min per model, about 14 min for 14 models; build about 5 s; first rsync of the 1.8 GB site depends on the link, later runs send only changed files.
+
+---
+
 ## Cross-Page Navigation
 
 | From | To | Mechanism |
@@ -641,6 +673,18 @@ Deploys made before the move to `protractor/data/` put `timbre_data_*/` and `tim
 ### Broken ☰ Menu button on phones in protractor and model_dash (priority: medium)
 
 Below 768 px both apps hide `#sidebar` and show a `#mobile-nav-btn` "☰ Menu" button with `data-bs-target="#offcanvasSidebar"`, but no element has that id, so the button does nothing and a phone user cannot reach the sidebar (no switching models, data sources or apps). `steady_states/` had the same bug until 2026-10-16. Fix, as done there (see App 2 › Architecture › Phone layout): give `#sidebar` the classes `offcanvas-md offcanvas-start` and `tabindex="-1"`; point the button at `#sidebar`; move the sidebar's `position: sticky` / `height: 100vh` / `width` rules into `@media (min-width: 768px)` and drop the `display: none` rule for `#sidebar` below 768 px; set `--bs-offcanvas-width: 260px` and `background-color: #1e2937 !important` on `#sidebar`; optionally add a `btn-close btn-close-white d-md-none` button with `data-bs-dismiss="offcanvas" data-bs-target="#sidebar"`, and call `bootstrap.Offcanvas.getInstance(sidebar)?.hide()` after a sidebar selection. Check at ~375 px wide.
+
+### `deploy.py` leaves local model_dash data mixed after a failed run (priority: low)
+
+`chandra_model_eval` writes each model's `<msid>.json.gz` as it finishes. If a later model fails, `model_dash/data/` holds a mix of new and old files. The server is not touched (deploy stops), and the next successful run overwrites everything. Before running `deploy.py --skip-model-dash` after such a failure, check `model_dash/data/run.log`.
+
+### Small site files are re-sent on every deploy (priority: low)
+
+`build.py` copies `steady_states/` and `model_dash/` `index.html`/`app.js` with `shutil.copy`, which gives them a new modification time on each build, so rsync re-sends those four small files every time. Harmless. Fix if wanted: use `shutil.copy2`.
+
+### Where the daily xija_steady_states cron writes is unknown (operational)
+
+`xija_steady_states/HANDOFF.md` says a daily cron runs the generator somewhere, but its host and output directory aren't recorded. If it writes straight into the server's `steady_states/`, a `deploy.py` run overwrites it with this machine's copy (same generator, so normally the same data). Find that entry before scheduling `deploy.py` in cron, so the two don't fight.
 
 ### Stale cached `app.js` after deploys (all apps; priority: medium)
 
