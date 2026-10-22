@@ -4,8 +4,10 @@ deploy.py — Regenerate Meridian data, build the site, and rsync it to the serv
 Steps (each can be skipped):
     1. steady_states data   python -m xija_steady_states --output-dir <meridian>/steady_states
     2. model_dash data      python -m chandra_model_eval --trailing-days N [--end-date D] model_dash/data <models_root>
-    3. build                build.build("dist", force=True), then normalize permissions
-    4. deploy               rsync -a dist/ <dest>/   (over SSH, never deletes remote files)
+    3. build                build.build(<output_dir>, force=True), then normalize permissions
+    4. deploy               rsync -a <output_dir>/ <dest>/   (over SSH, never deletes remote files)
+
+<output_dir> defaults to <meridian>/dist; --output-dir is relative to the caller's directory.
 
 Any failure stops the run before anything is sent to the server.
 
@@ -48,7 +50,8 @@ DEFAULT_CONFIG = ROOT / "deploy_config.json"
 LOCK_FILE = ROOT / ".deploy.lock"
 
 DEFAULTS = {
-    "dest": None,                                # user@host:/path/to/webroot (required to deploy)
+    "dest": None,                                # user@host:/path/to/webroot, or a local path (required to deploy)
+    "output_dir": str(ROOT / "dist"),            # where the site is assembled before rsync
     # Generator checkouts, not pip-installed: put on PYTHONPATH. Default: next to meridian/.
     "xija_repo": str(ROOT.parent / "xija_steady_states"),
     "model_eval_repo": str(ROOT.parent / "chandra_model_eval"),
@@ -131,6 +134,34 @@ def model_end_date(cfg: dict):
     return None
 
 
+# What build.build() puts in its output directory. Anything else there means it isn't a build.
+BUILD_ENTRIES = {"protractor", "steady_states", "model_dash"}
+
+
+def output_dir_problem(out: Path):
+    """build.build(force=True) deletes the output directory first: only allow an empty one or a
+    previous build, so a mistyped path (such as '.') can't wipe a real directory."""
+    if out == ROOT or out in ROOT.parents or out == Path.home():
+        return f"output_dir would replace {out}"
+    if not out.exists():
+        return None
+    if not out.is_dir():
+        return f"output_dir is not a directory: {out}"
+    extra = sorted(e.name for e in out.iterdir() if e.name not in BUILD_ENTRIES | {".DS_Store"})
+    if extra:
+        return (f"output_dir {out} is not empty and doesn't look like a Meridian build "
+                f"(contains {', '.join(extra[:5])}); it would be deleted, so refusing")
+    return None
+
+
+def is_remote(dest: str) -> bool:
+    """rsync's rule: host:path (a colon before any slash) or rsync://... is remote; else a local path."""
+    if "://" in dest:
+        return True
+    colon, slash = dest.find(":"), dest.find("/")
+    return colon > 0 and (slash == -1 or colon < slash)
+
+
 def check_environment(args, cfg) -> None:
     """Fail fast (exit 2) on problems that would otherwise surface minutes into a run."""
     problems = []
@@ -177,9 +208,14 @@ def check_environment(args, cfg) -> None:
             problems.append(f"model_end_date must be YYYY:DDD or YYYY-MM-DD: {cfg['model_end_date']}")
         if not isinstance(cfg["model_lag_days"], int) or cfg["model_lag_days"] < 0:
             problems.append(f"model_lag_days must be a non-negative integer: {cfg['model_lag_days']}")
+    problem = output_dir_problem(Path(cfg["output_dir"]))
+    if problem:
+        problems.append(problem)
     if not args.no_deploy:
         if not cfg["dest"]:
             problems.append('no destination: set "dest" in deploy_config.json or pass --dest')
+        elif not is_remote(cfg["dest"]) and Path(cfg["dest"]).resolve() == Path(cfg["output_dir"]):
+            problems.append(f"dest is the build directory itself ({cfg['output_dir']}); nothing would be copied")
         if not shutil.which("rsync"):
             problems.append("rsync not found on PATH")
     if problems:
@@ -260,7 +296,10 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", type=Path, default=DEFAULT_CONFIG,
                    help="JSON settings file (default: deploy_config.json)")
-    p.add_argument("--dest", help="override config 'dest' (user@host:/path/to/webroot)")
+    p.add_argument("--dest", help="override config 'dest' (user@host:/path/to/webroot, or a local "
+                                  "directory, relative to the current directory)")
+    p.add_argument("--output-dir", type=Path,
+                   help="build the site here instead of <meridian>/dist (relative to the current directory)")
     p.add_argument("--model-days", type=int, help="override config 'model_days'")
     end = p.add_mutually_exclusive_group()
     end.add_argument("--model-end-date", metavar="DATE",
@@ -281,6 +320,10 @@ def main(argv=None) -> int:
     args.config = args.config.resolve()
     if args.log_file:
         args.log_file = args.log_file.resolve()
+    if args.output_dir:
+        args.output_dir = args.output_dir.expanduser().resolve()
+    if args.dest and not is_remote(args.dest):
+        args.dest = str(Path(args.dest).expanduser().resolve())
     os.chdir(ROOT)
 
     handlers = [logging.StreamHandler()]
@@ -292,6 +335,10 @@ def main(argv=None) -> int:
     cfg = load_config(args.config)
     if args.dest:
         cfg["dest"] = args.dest
+    if args.output_dir:
+        cfg["output_dir"] = str(args.output_dir)
+    # A relative output_dir in the config file is relative to meridian/ (cwd is ROOT here).
+    cfg["output_dir"] = str(Path(cfg["output_dir"]).expanduser().resolve())
     if args.model_days:
         cfg["model_days"] = args.model_days
     if args.model_end_date is not None:
@@ -312,7 +359,7 @@ def main(argv=None) -> int:
         return 3
 
     env = generator_env(cfg)
-    dist = ROOT / "dist"
+    dist = Path(cfg["output_dir"])
     t0 = time.monotonic()
     try:
         if not args.skip_steady_states:
