@@ -221,11 +221,17 @@ python deploy.py --dest user@host:/tmp/meridian_test   # override the destinatio
 
 Exit codes: `0` success, `1` a step failed, `2` configuration problem (all are listed before anything runs), `3` another run holds `.deploy.lock`.
 
-From cron, call `deploy.csh` with a log file. SSH must work without a prompt (a key with no passphrase, or an agent the cron job can reach):
+From cron, call `deploy.csh` with a log file. SSH must work without a prompt (a key with no passphrase, or an agent the cron job can reach). Set `model_lag_days` (for example 3) in `deploy_config.json` so the nightly window ends where the archive has data:
 
 ```cron
 15 3 * * * /path/to/meridian/deploy.csh --log-file /path/to/meridian/deploy.log
 ```
+
+Notes on crontab lines:
+- Arguments need no special quoting: cron passes everything after the five time fields to `/bin/sh` as one command line. Quote only what the shell would need quoted (a path with spaces).
+- `%` is special to cron (it becomes a newline), so write `\%`, e.g. `--log-file /path/deploy_$(date +\%Y\%j).log`.
+- Use absolute paths. Cron starts in your home directory, so a relative `--dest` or `--log-file` lands there.
+- The script must be executable (`chmod +x deploy.csh`) to be run directly; `csh /path/to/deploy.csh ...` also works without the execute bit.
 
 `deploy.csh` runs with `csh -f` (no `~/.cshrc`), so cron and interactive runs get the same environment. It calls `$HOME/AXAFLIB/meridian/deploy.py` by its full path (`MERIDIAN` at the top of the script), so it can be run from any directory, or copied elsewhere. Relative paths in its arguments (such as `--log-file`) are relative to the directory you run it from.
 

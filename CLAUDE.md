@@ -47,7 +47,9 @@ SKA=~/AXAFDATA/SKADATA python -m xija_steady_states --output-dir steady_states
 python build.py [--output-dir dist] [--force]
 
 # All of the above plus model_dash data and rsync to the server (Ska env; deploy.csh sets it up):
-./deploy.csh [--skip-data] [--no-deploy] [--dry-run]
+./deploy.csh [--skip-data] [--no-deploy] [--dry-run] [--dest DEST] [--output-dir DIR] [--model-lag-days N]
+# Relative --dest/--output-dir/--log-file are relative to the caller's directory. --output-dir is
+# deleted and rebuilt (refused unless empty or a previous build). See README for every flag.
 
 # Dev — serve source directly, no build needed:
 python -m http.server 8765   # from meridian/
