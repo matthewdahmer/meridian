@@ -584,7 +584,7 @@ Copies into `dist/` (or `DIR`):
 - `protractor/` → `dist/protractor/` (whole directory, including `protractor/data/timbre_sources.json` and every `protractor/data/timbre_data_*/`)
 - `steady_states/index.html`, `app.js`, `vendor/` → `dist/steady_states/`
 - `steady_states/data/` → `dist/steady_states/data/` (warns but succeeds if absent)
-- `model_dash/index.html`, `app.js`, `config.js`, `vendor/` → `dist/model_dash/`
+- `model_dash/index.html`, `app.js`, `config.js`, `vendor/` → `dist/model_dash/`. `config.js` was missing from this list in `build.py` until Oct 2026, so earlier deploys have no `model_dash/config.js` (the page got a 404 and silently used no overrides). When you add a new file that an `index.html` loads, add it to `build.py` too: steady_states and model_dash copy named files, not the whole directory.
 - `model_dash/data/` → `dist/model_dash/data/` (warns but succeeds if absent)
 
 Adding a new timbre data directory requires no changes to `build.py`: put it in `protractor/data/` and it is copied with the rest of `protractor/`. The directory must also be added to `protractor/data/timbre_sources.json` to be discovered by the app.
@@ -608,25 +608,45 @@ deploy.py
   ├── check_environment()   all config problems reported together → exit 2
   ├── flock(.deploy.lock)   second concurrent run → exit 3
   ├── gen_steady_states()   python -m xija_steady_states --output-dir <meridian>/steady_states [--force]
-  ├── gen_model_dash()      python -m chandra_model_eval --trailing-days N model_dash/data <models_root> --log-file model_dash/data/run.log
-  ├── build_site()          build.build(dist, force=True) → chmod 755/644 → delete .DS_Store
-  └── deploy()              rsync -a -z -e "ssh -o BatchMode=yes" --itemize-changes dist/ <dest>/
+  ├── gen_model_dash()      python -m chandra_model_eval --trailing-days N [--end-date YYYY:DDD] model_dash/data <models_root> --log-file model_dash/data/run.log
+  ├── build_site()          build.build(output_dir, force=True) → chmod 755/644 → delete .DS_Store
+  └── deploy()              rsync -a -z -e "ssh -o BatchMode=yes" --itemize-changes <output_dir>/ <dest>/
 ```
 
-Settings come from `deploy_config.json` (gitignored; template in `deploy_config.example.json`), overridable with `--dest`, `--output-dir`, `--model-days`, `--model-end-date` and `--model-lag-days`. The model_dash window ends on `model_end_date`, or `model_lag_days` before today (UTC), or now; deploy.py passes that to chandra_model_eval as `--end-date YYYY:DDD`. The lag exists because the archive telemetry is sometimes a few days behind, and a window ending now would end in missing data. A command-line end option replaces both config keys, so `--model-end-date` overrides a configured lag. The site is built in `output_dir` (default `<meridian>/dist`; `--output-dir` resolves against the caller's directory, a relative config value against `meridian/`). `build.build(force=True)` runs `rmtree` on it first, so `output_dir_problem()` refuses (exit 2) a directory that is meridian/ itself, one of its parents, `$HOME`, or a non-empty directory containing anything besides `protractor/`, `steady_states/`, `model_dash/` and `.DS_Store`. Don't loosen that check without keeping some guard: a mistyped `--output-dir .` would otherwise delete the current directory. A local (non-`host:`) `--dest` is resolved against the caller's directory before `os.chdir(ROOT)`. Before that fix, `deploy.csh --dest ./dist` resolved to `meridian/dist`, the build directory itself, so rsync synced it onto itself and copied nothing after a full 38-minute generation run. `check_environment` now refuses a dest equal to `output_dir`. `is_remote()` follows rsync's rule (a colon before any slash, or `rsync://`). See README "Regenerating Data and Deploying" for the settings table, flags and an example crontab line. Logger name: `meridian.deploy`. Every subprocess line is re-logged at INFO with two-space indent; `--log-file` appends to a file as well as stderr.
+`output_dir` defaults to `<meridian>/dist`.
+
+Settings come from `deploy_config.json` (gitignored; template in `deploy_config.example.json`; keys in `DEFAULTS` at the top of `deploy.py`). Command-line overrides: `--dest`, `--output-dir`, `--model-days`, `--model-end-date`, `--model-lag-days`. See README "Regenerating Data and Deploying" for the settings table, every flag and an example crontab line. Logger name: `meridian.deploy`. Every subprocess line is re-logged at INFO with a two-space indent; `--log-file` appends to a file as well as stderr.
+
+**model_dash window end.** The window is `model_days` long and ends on `model_end_date` if set, else `model_lag_days` before today (UTC) if non-zero, else now. `model_end_date()` turns that into `--end-date YYYY:DDD` for chandra_model_eval (its own `--end-date` option, which only works with `--trailing-days`). The lag exists because archive telemetry is sometimes a few days behind, and a window ending now would end in missing data. Use the lag under cron; a fixed date would freeze the window. Setting both keys in the config is a config error (exit 2), as are a date that isn't `YYYY:DDD`/`YYYY-MM-DD` and a negative lag. The two CLI flags are mutually exclusive, and either one replaces both config keys, so `--model-end-date` overrides a configured lag.
 
 **Design decisions:**
 - **The Ska environment comes from the Ska setup script, not from `deploy.py`.** `deploy.csh` sources it, and `deploy.py` inherits `SKA` and `PATH` and only checks them. `SKA` is checked *before* importing anything, because kadi (imported by `chandra_model_eval`) reads `os.environ["SKA"]` at import time and crashes with `KeyError: 'SKA'` without it. The setup script is fixed at `/proj/sot/ska3/flight/bin/ska_envs.csh` (`SKA_ENVS` in `deploy.csh`). Don't add an override with a one-line `if ($?VAR) set X = "$VAR"`: csh expands every variable on that line before testing the condition, so it fails with `VAR: Undefined variable` whenever VAR is unset (this happened in Oct 2026). Use a block `if ... then ... endif` instead.
 - **Must run under the Ska Python.** It runs both generators with `sys.executable`.
 - **The generators run from checkouts, not installs.** On the deployment host, neither `xija_steady_states` nor `chandra_model_eval` is installed in the Ska environment; both are checkouts next to `meridian/`. `generator_env()` puts `xija_repo` and `model_eval_repo` (default `ROOT.parent/<name>`) first on `PYTHONPATH`, and `check_environment()` adds them to `sys.path` so its import checks see the same code. On a Mac where `chandra_model_eval` is also pip-installed, the checkout still wins. Each checkout's `git describe --dirty` is logged.
-- **Paths in arguments are relative to the caller.** `main()` resolves `--config` and `--log-file` before `os.chdir(ROOT)`, so `deploy.csh --log-file deploy.log` writes to the caller's directory.
+- **Paths in arguments are relative to the caller; paths in the config are relative to `meridian/`.** `main()` resolves `--config`, `--log-file`, `--output-dir` and a local `--dest` before `os.chdir(ROOT)`, so `deploy.csh --log-file deploy.log` writes to the caller's directory. Everything after the chdir (config values, the generators) works relative to `meridian/`. A `--dest` is local unless `is_remote()` says otherwise; it follows rsync's rule (a colon before any slash, or `rsync://`). Local `--dest` resolution was added after `deploy.csh --dest ./dist` resolved to `meridian/dist`, the build directory itself: rsync synced it onto itself and copied nothing, after a full 38-minute generation run. `check_environment()` now also refuses a dest equal to `output_dir`.
+- **`output_dir` is guarded because the build deletes it.** `build.build(force=True)` runs `rmtree` on the output directory first. `output_dir_problem()` refuses (exit 2) meridian/ itself, any of its parents, `$HOME`, and any non-empty directory holding anything besides `protractor/`, `steady_states/`, `model_dash/` and `.DS_Store`. A missing or empty directory, or a previous build, is fine. Don't loosen this without keeping some guard: a mistyped `--output-dir .` would otherwise delete the current directory.
 - **Stop on any failure.** `chandra_model_eval` exits 1 if any single model fails. Deploying anyway would publish partial or mixed-age data, so nothing is synced.
 - **Permissions are set in `dist/`, not by rsync.** macOS openrsync rejects `--chmod=D755,F644` and silently ignores the other `--chmod` forms. `rsync -a` then carries the normalized modes, which also prevents the execute-bit `old mode`/`new mode` noise seen on the server in Oct 2026.
 - **No `--delete`.** The webroot may hold files Meridian doesn't own. Stale files must be removed by hand (see Known Issues for the current list).
 - **`BatchMode=yes`.** Under cron, an SSH password or passphrase prompt would hang forever. With this, ssh fails immediately instead (`Permission denied`), rsync exits non-zero, and `deploy.py` exits 1.
-- **`--dry-run` skips data generation** but still rebuilds `dist/`, so the itemized list reflects the current source tree.
+- **`--dry-run` skips data generation** but still rebuilds `output_dir`, so the itemized list reflects the current source tree.
+- **Config problems are found before anything slow runs.** `check_environment()` collects every problem (SKA, imports, repo paths, end-date settings, output_dir, dest, rsync) and exits 2 with all of them listed, so a bad setting can't fail 30+ minutes in.
 
 **Normal log:** `── steady_states data ──`, the generator output, `done in Ns`, then the same for model_dash (its own detail goes to `model_dash/data/run.log`), the build's copy lines, the rsync `--itemize-changes` lines, and `finished in N min`. **Failure:** `ERROR FAILED: <module> exited with code N after Ns. Later steps were not run.` and exit 1.
+
+**Validating a run:**
+- The log ends with `finished in N min` and the exit code is 0 (`echo $status` in csh).
+- The model_dash header line shows the intended window, e.g. `── model_dash data (1096 days ending 2026:296) ──`; `ending now` means no end date or lag was applied.
+- `model_dash/data/run.log` ends without per-model errors, and every `<msid>.json.gz` in `model_dash/data/` has today's modification time.
+- The rsync `--itemize-changes` lines list the changed data files (`<f.st....` = sent because size/time changed). No itemized lines at all after a generation run means nothing was sent; check that `dest` isn't the build directory and is the path you meant.
+- In a browser (hard-refresh to bypass the cache), the model_dash time axes end at the expected date, and the protractor and steady_states pages load their dropdowns.
+
+**What failures look like:**
+- `config: ...` lines then exit 2: a setting is wrong; nothing ran. Each problem is listed.
+- `another deploy.py run is in progress` and exit 3: an earlier run still holds `.deploy.lock` (the lock is released automatically when that process exits, even if it crashes).
+- `FAILED: xija_steady_states exited with code N`: look at the indented generator output just above, usually a cheta/archive read error or a missing `SKA` data file.
+- `FAILED: chandra_model_eval exited with code 1`: at least one model failed; the per-model reason is in `model_dash/data/run.log`. Telemetry that hasn't reached the archive yet shows up as fetch errors or empty data near the window end; increase `model_lag_days`.
+- `FAILED: rsync exited with code 255`: SSH failed (host unreachable, or `Permission denied` because BatchMode refused to prompt). Code 23 or 11: a remote path or permission problem; the rsync lines above name the file.
 
 **Runtime:** steady_states about 6 min for a full run (seconds to minutes when nothing is missing); model_dash about 1 min per model, about 14 min for 14 models; build about 5 s; first rsync of the 1.8 GB site depends on the link, later runs send only changed files.
 

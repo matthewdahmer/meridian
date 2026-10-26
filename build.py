@@ -68,6 +68,7 @@ def build(output_dir: Path, force: bool = False) -> None:
     print("Copying model_dash static files...")
     shutil.copy(md_src / "index.html", md_dst / "index.html")
     shutil.copy(md_src / "app.js",     md_dst / "app.js")
+    shutil.copy(md_src / "config.js",  md_dst / "config.js")   # per-model overrides; index.html loads it
     shutil.copytree(md_src / "vendor", md_dst / "vendor")
 
     md_data = md_src / "data"
