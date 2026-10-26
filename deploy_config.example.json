@@ -1,0 +1,10 @@
+{
+  "dest": "user@host:/path/to/webroot",
+  "xija_repo": "~/AXAFLIB/xija_steady_states",
+  "model_eval_repo": "~/AXAFLIB/chandra_model_eval",
+  "models_root": "~/AXAFLIB/chandra_models",
+  "model_days": 1096,
+  "model_end_date": null,
+  "model_lag_days": 3,
+  "ssh_options": ["-o", "BatchMode=yes"]
+}
